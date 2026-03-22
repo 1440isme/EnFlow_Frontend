@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { registerAccount, ApiError } from '@/lib/auth-api';
+import { saveUserProfile } from '@/lib/user-profile';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -26,6 +27,10 @@ export default function RegisterPage() {
         fullName: fullName.trim(),
         email: email.trim(),
         password,
+      });
+      saveUserProfile({
+        fullName: fullName.trim(),
+        email: email.trim(),
       });
       router.push('/login');
     } catch (err) {

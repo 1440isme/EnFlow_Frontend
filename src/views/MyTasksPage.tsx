@@ -14,7 +14,7 @@ export default function MyTasksPage() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold text-gray-900 mb-2">My Tasks</h1>
+        <h1 className="text-3xl font-semibold text-gray-900 mb-2">My Task</h1>
         <p className="text-gray-600">Tất cả task được phân công cho bạn</p>
       </div>
 

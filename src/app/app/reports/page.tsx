@@ -1,5 +1,5 @@
-import ReportsPage from '@/views/ReportsPage';
+import { redirect } from 'next/navigation';
 
 export default function Page() {
-  return <ReportsPage />;
+  redirect('/app/projects');
 }

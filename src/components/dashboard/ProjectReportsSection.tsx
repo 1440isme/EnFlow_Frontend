@@ -1,12 +1,17 @@
 import { Card } from '@/components/ui/card';
-import { BarChart3, PieChart, TrendingUp, Users } from 'lucide-react';
+import { BarChart3, PieChart, TrendingUp, Users, Target } from 'lucide-react';
 import type { Task, Project } from '@/types/task';
 import { Progress } from '@/components/ui/progress';
 
 const tasks: Task[] = [];
 const projects: Project[] = [];
 
-export default function ReportsPage() {
+type Props = {
+  /** Ẩn khối so sánh nhiều dự án; đổi KPI cuối cho phù hợp một dự án */
+  projectScoped?: boolean;
+};
+
+export default function ProjectReportsSection({ projectScoped }: Props) {
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter((t) => t.status === 'done').length;
   const inProgressTasks = tasks.filter((t) => t.status === 'in-progress').length;
@@ -23,10 +28,12 @@ export default function ReportsPage() {
   const completionPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold text-gray-900 mb-2">Reports</h1>
-        <p className="text-gray-600">Phân tích và thống kê hiệu suất làm việc</p>
+        <h2 className="text-lg font-semibold text-gray-900">Báo cáo & thống kê</h2>
+        <p className="text-sm text-gray-600">
+          Phân tích hiệu suất trong phạm vi dự án (dữ liệu từ API sau khi tích hợp)
+        </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -39,7 +46,7 @@ export default function ReportsPage() {
           <div className="space-y-1">
             <p className="text-sm text-gray-600">Tổng số Tasks</p>
             <p className="text-3xl font-semibold text-gray-900">{totalTasks}</p>
-            <p className="text-sm text-gray-500">Dữ liệu từ API sau khi tích hợp</p>
+            <p className="text-sm text-gray-500">Theo bộ lọc dự án</p>
           </div>
         </Card>
 
@@ -65,27 +72,37 @@ export default function ReportsPage() {
           <div className="space-y-1">
             <p className="text-sm text-gray-600">Đang thực hiện</p>
             <p className="text-3xl font-semibold text-gray-900">{inProgressTasks}</p>
-            <p className="text-sm text-gray-600">Tasks đang được xử lý</p>
+            <p className="text-sm text-gray-600">Tasks đang xử lý</p>
           </div>
         </Card>
 
         <Card className="p-6">
           <div className="flex items-start justify-between mb-4">
             <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-              <Users className="w-6 h-6 text-purple-600" />
+              {projectScoped ? (
+                <Target className="w-6 h-6 text-purple-600" />
+              ) : (
+                <Users className="w-6 h-6 text-purple-600" />
+              )}
             </div>
           </div>
           <div className="space-y-1">
-            <p className="text-sm text-gray-600">Số dự án</p>
-            <p className="text-3xl font-semibold text-gray-900">{projects.length}</p>
-            <p className="text-sm text-gray-600">Đang hoạt động</p>
+            <p className="text-sm text-gray-600">
+              {projectScoped ? 'Chỉ số dự án' : 'Số dự án'}
+            </p>
+            <p className="text-3xl font-semibold text-gray-900">
+              {projectScoped ? '—' : projects.length}
+            </p>
+            <p className="text-sm text-gray-600">
+              {projectScoped ? 'Kết nối API để hiển thị' : 'Đang hoạt động'}
+            </p>
           </div>
         </Card>
       </div>
 
       {totalTasks === 0 ? (
-        <Card className="p-12 text-center text-gray-600">
-          Chưa có dữ liệu báo cáo. Kết nối API để tải tasks và dự án.
+        <Card className="p-8 text-center text-gray-600">
+          Chưa có dữ liệu báo cáo cho dự án này. Kết nối API để tải tasks.
         </Card>
       ) : (
         <>
@@ -170,39 +187,41 @@ export default function ReportsPage() {
             </Card>
           </div>
 
-          <Card className="p-6">
-            <h3 className="font-semibold text-gray-900 mb-6">Hiệu suất theo dự án</h3>
-            <div className="space-y-6">
-              {projects.map((project) => {
-                const projectTasks = tasks.filter((t) => t.project === project.name);
-                const completedProjectTasks = projectTasks.filter(
-                  (t) => t.status === 'done'
-                ).length;
-                const progress =
-                  projectTasks.length > 0
-                    ? Math.round((completedProjectTasks / projectTasks.length) * 100)
-                    : 0;
+          {!projectScoped ? (
+            <Card className="p-6">
+              <h3 className="font-semibold text-gray-900 mb-6">Hiệu suất theo dự án</h3>
+              <div className="space-y-6">
+                {projects.map((project) => {
+                  const projectTasks = tasks.filter((t) => t.project === project.name);
+                  const completedProjectTasks = projectTasks.filter(
+                    (t) => t.status === 'done'
+                  ).length;
+                  const progress =
+                    projectTasks.length > 0
+                      ? Math.round((completedProjectTasks / projectTasks.length) * 100)
+                      : 0;
 
-                return (
-                  <div key={project.id}>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: project.color }}
-                        ></div>
-                        <span className="font-medium text-gray-900">{project.name}</span>
+                  return (
+                    <div key={project.id}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: project.color }}
+                          />
+                          <span className="font-medium text-gray-900">{project.name}</span>
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          {completedProjectTasks}/{projectTasks.length} tasks
+                        </div>
                       </div>
-                      <div className="text-sm text-gray-600">
-                        {completedProjectTasks}/{projectTasks.length} tasks
-                      </div>
+                      <Progress value={progress} className="h-2" />
                     </div>
-                    <Progress value={progress} className="h-2" />
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
+                  );
+                })}
+              </div>
+            </Card>
+          ) : null}
         </>
       )}
     </div>

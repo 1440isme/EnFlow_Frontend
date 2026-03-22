@@ -1,4 +1,5 @@
 import { setAccessToken } from '@/lib/auth-token';
+import { syncProfileFromJwtToken } from '@/lib/user-profile';
 
 /**
  * - Trên trình duyệt: mặc định dùng URL tương đối `/enflow` → Next.js rewrite proxy tới backend (tránh CORS).
@@ -127,5 +128,6 @@ export async function loginAccount(payload: LoginPayload): Promise<void> {
   const token = pickAccessToken(data);
   if (token) {
     setAccessToken(token);
+    syncProfileFromJwtToken(token);
   }
 }
