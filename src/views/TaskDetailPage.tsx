@@ -237,7 +237,7 @@ export default function TaskDetailPage() {
               ? `Gọi API với id: ${id} để lấy chi tiết task.`
               : 'Thiếu id task trong URL.'}
           </p>
-          <Button onClick={() => router.push('/app/dashboard')}>Quay lại Dashboard</Button>
+          <Button onClick={() => router.push('/app/projects')}>Quay lại Project</Button>
         </div>
       </div>
     );

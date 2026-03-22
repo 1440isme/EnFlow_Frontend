@@ -1,66 +1,243 @@
 'use client';
 
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, CheckSquare, Folder, Users, Calendar, BarChart3 } from 'lucide-react';
+import {
+  Building2,
+  Check,
+  CheckSquare,
+  ChevronDown,
+  Copy,
+  Folder,
+  PlusCircle,
+  Settings,
+  Users,
+} from 'lucide-react';
+import { getStoredUserId } from '@/lib/auth-session';
+import {
+  listWorkspaces,
+  listWorkspacesByOwner,
+} from '@/lib/workspace-api';
+import { getWorkspaceSnapshot, saveWorkspaceSnapshot, workspaceResponseToSnapshot } from '@/lib/workspace-storage';
+import type { WorkspaceSnapshot } from '@/types/workspace';
+import type { WorkspaceResponse } from '@/types/api';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { cn } from '@/components/ui/utils';
+import CreateWorkspaceDialog from '@/components/CreateWorkspaceDialog';
+import WorkspaceSettingsDialog from '@/components/WorkspaceSettingsDialog';
+
+async function fetchWorkspacesForSwitcher(): Promise<WorkspaceResponse[]> {
+  try {
+    return await listWorkspaces();
+  } catch {
+    const uid = getStoredUserId();
+    if (uid == null) return [];
+    return listWorkspacesByOwner(uid);
+  }
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [workspace, setWorkspace] = useState<WorkspaceSnapshot>(() => ({
+    ...getWorkspaceSnapshot(),
+  }));
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [workspaceOptions, setWorkspaceOptions] = useState<WorkspaceResponse[]>([]);
+  const [workspacesLoading, setWorkspacesLoading] = useState(false);
+
+  const refreshWorkspace = useCallback(() => {
+    setWorkspace({ ...getWorkspaceSnapshot() });
+  }, []);
+
+  useEffect(() => {
+    refreshWorkspace();
+    const onChange = () => refreshWorkspace();
+    window.addEventListener('enflow-workspace-changed', onChange);
+    return () => window.removeEventListener('enflow-workspace-changed', onChange);
+  }, [refreshWorkspace]);
+
+  const loadWorkspaceOptions = useCallback(async () => {
+    setWorkspacesLoading(true);
+    try {
+      const list = await fetchWorkspacesForSwitcher();
+      setWorkspaceOptions(list);
+    } catch {
+      setWorkspaceOptions([]);
+    } finally {
+      setWorkspacesLoading(false);
+    }
+  }, []);
 
   const menuItems = [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/app/dashboard' },
-    { icon: CheckSquare, label: 'My Tasks', path: '/app/my-tasks' },
-    { icon: Folder, label: 'Projects', path: '/app/projects' },
+    { icon: CheckSquare, label: 'My Task', path: '/app/my-tasks' },
+    { icon: Folder, label: 'Project', path: '/app/projects' },
     { icon: Users, label: 'Team', path: '/app/team' },
-    { icon: Calendar, label: 'Calendar', path: '/app/calendar' },
-    { icon: BarChart3, label: 'Reports', path: '/app/reports' },
   ];
+
+  const isActive = (path: string) => {
+    if (path === '/app/projects') {
+      return pathname.startsWith('/app/projects');
+    }
+    return pathname === path;
+  };
+
+  const copyWorkspaceKey = () => {
+    void navigator.clipboard.writeText(workspace.workspaceKey);
+  };
+
+  const selectWorkspace = (w: WorkspaceResponse) => {
+    saveWorkspaceSnapshot(workspaceResponseToSnapshot(w));
+    refreshWorkspace();
+  };
+
+  const currentId = workspace.workspaceId;
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 h-screen sticky top-0 flex flex-col">
-      {/* Logo */}
-      <div className="p-6 border-b border-gray-200">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-[#004ba8] rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold">E</span>
-          </div>
-          <span className="text-xl font-semibold text-gray-900">EnFlow</span>
-        </div>
+      <div className="p-4 border-b border-gray-200">
+        <DropdownMenu
+          modal={false}
+          onOpenChange={(open) => {
+            if (open) void loadWorkspaceOptions();
+          }}
+        >
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                'inline-flex w-full items-center justify-between gap-2 rounded-md px-3 py-3 text-sm font-medium',
+                'hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#004ba8]/30'
+              )}
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#004ba8]/10">
+                  <Building2 className="h-5 w-5 text-[#004ba8]" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                    Workspace
+                  </p>
+                  <p className="truncate font-semibold text-gray-900">{workspace.name}</p>
+                </div>
+              </div>
+              <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            sideOffset={6}
+            className="z-[200] w-56"
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
+            <DropdownMenuLabel className="font-normal text-xs text-gray-500">
+              {workspace.workspaceId != null ? `ID: ${workspace.workspaceId}` : 'Chưa đồng bộ API'}
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              onSelect={() => {
+                setSettingsOpen(true);
+              }}
+            >
+              <Settings className="mr-2 h-4 w-4" />
+              Cài đặt workspace
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void copyWorkspaceKey()}>
+              <Copy className="mr-2 h-4 w-4" />
+              Sao chép mã workspace
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs text-gray-500 font-normal px-2 py-1.5">
+              Chuyển workspace
+            </DropdownMenuLabel>
+            <div className="max-h-48 overflow-y-auto">
+              {workspacesLoading ? (
+                <div className="px-2 py-2 text-xs text-gray-500">Đang tải…</div>
+              ) : workspaceOptions.length === 0 ? (
+                <div className="px-2 py-2 text-xs text-gray-500">Chưa có workspace khác.</div>
+              ) : (
+                workspaceOptions.map((w) => {
+                  const active = currentId != null && w.workspaceId === currentId;
+                  return (
+                    <DropdownMenuItem
+                      key={w.workspaceId}
+                      onSelect={() => selectWorkspace(w)}
+                      className="cursor-pointer"
+                    >
+                      <span className="mr-2 flex h-4 w-4 items-center justify-center shrink-0">
+                        {active ? <Check className="h-4 w-4 text-[#004ba8]" /> : null}
+                      </span>
+                      <span className="truncate">{w.name}</span>
+                    </DropdownMenuItem>
+                  );
+                })
+              )}
+            </div>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => {
+                setCreateOpen(true);
+              }}
+            >
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Tạo workspace mới
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1">
         {menuItems.map((item) => {
-          const isActive = pathname === item.path;
+          const active = isActive(item.path);
           return (
             <Link
               key={item.path}
               href={item.path}
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                isActive
+              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${active
                   ? 'bg-[#e6f0fb] text-[#004ba8] font-medium'
                   : 'text-gray-700 hover:bg-gray-100'
-              }`}
+                }`}
             >
-              <item.icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5]' : ''}`} />
+              <item.icon className={`w-5 h-5 ${active ? 'stroke-[2.5]' : ''}`} />
               <span>{item.label}</span>
             </Link>
           );
         })}
       </nav>
 
-      {/* Bottom Section */}
-      <div className="p-4 border-t border-gray-200">
-        <div className="bg-[#004ba8]/5 rounded-lg p-4">
-          <h4 className="font-medium text-gray-900 mb-1">Nâng cấp Pro</h4>
-          <p className="text-sm text-gray-600 mb-3">
-            Mở khóa tính năng cao cấp
-          </p>
-          <button className="w-full bg-[#004ba8] text-white px-4 py-2 rounded-lg hover:bg-[#003d8a] transition-colors">
-            Nâng cấp
-          </button>
-        </div>
+      <div className="p-4 border-t border-gray-200 mt-auto">
+        <Link
+          href="/app/projects"
+          className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-gray-50 transition-colors"
+        >
+          <div className="w-10 h-10 bg-[#004ba8] rounded-lg flex items-center justify-center shrink-0">
+            <span className="text-white font-bold text-lg">E</span>
+          </div>
+          <div>
+            <span className="text-lg font-semibold text-gray-900 block leading-tight">EnFlow</span>
+            <span className="text-xs text-gray-500">Quản lý công việc</span>
+          </div>
+        </Link>
       </div>
+
+      <WorkspaceSettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        snapshot={workspace}
+        onSaved={refreshWorkspace}
+      />
+      <CreateWorkspaceDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={refreshWorkspace}
+      />
     </aside>
   );
 }

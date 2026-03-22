@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation';
+
 export default function AppIndexPage() {
-  return null;
+  redirect('/app/projects');
 }

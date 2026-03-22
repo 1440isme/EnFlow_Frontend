@@ -22,7 +22,7 @@ export default function LoginPage() {
     setIsSubmitting(true);
     try {
       await loginAccount({ usernameOrEmail: usernameOrEmail.trim(), password });
-      router.push('/app/dashboard');
+      router.push('/app/projects');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Đăng nhập thất bại');
     } finally {
@@ -58,12 +58,12 @@ export default function LoginPage() {
               </Alert>
             ) : null}
             <div className="space-y-2">
-              <Label htmlFor="usernameOrEmail">Email hoặc tên đăng nhập</Label>
+              <Label htmlFor="usernameOrEmail">Email</Label>
               <Input
                 id="usernameOrEmail"
                 type="text"
                 autoComplete="username"
-                placeholder="username hoặc email"
+                placeholder="Email"
                 value={usernameOrEmail}
                 onChange={(e) => setUsernameOrEmail(e.target.value)}
                 required

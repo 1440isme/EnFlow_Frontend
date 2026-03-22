@@ -1,5 +1,5 @@
-import DashboardPage from '@/views/DashboardPage';
+import { redirect } from 'next/navigation';
 
 export default function Page() {
-  return <DashboardPage />;
+  redirect('/app/projects');
 }

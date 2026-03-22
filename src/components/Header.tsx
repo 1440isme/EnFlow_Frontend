@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Search, Bell, Plus } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -13,6 +14,9 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { useRouter } from 'next/navigation';
+import { useUserProfile } from '@/hooks/useUserProfile';
+import { clearAuthSession } from '@/lib/auth-session';
+import { profileInitials } from '@/lib/user-profile';
 
 interface HeaderProps {
   onNewTask?: () => void;
@@ -20,9 +24,14 @@ interface HeaderProps {
 
 export default function Header({ onNewTask }: HeaderProps) {
   const router = useRouter();
+  const { profile } = useUserProfile();
   const [searchQuery, setSearchQuery] = useState('');
+  const initials = profileInitials(profile);
+  const displayName =
+    profile.fullName.trim() || profile.email || 'Người dùng';
 
   const handleLogout = () => {
+    clearAuthSession();
     router.push('/login');
   };
 
@@ -100,26 +109,34 @@ export default function Header({ onNewTask }: HeaderProps) {
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-2 rounded-lg hover:bg-gray-100 p-1 pr-3 transition-colors">
                 <div className="w-8 h-8 rounded-full bg-[#004ba8] flex items-center justify-center">
-                  <span className="text-white font-medium text-sm">NV</span>
+                  <span className="text-white font-medium text-sm">{initials}</span>
                 </div>
-                <span className="hidden md:inline text-sm font-medium text-gray-700">
-                  Nguyễn Văn A
+                <span className="hidden md:inline text-sm font-medium text-gray-700 truncate max-w-[140px]">
+                  {displayName}
                 </span>
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>
                 <div>
-                  <div className="font-medium">Nguyễn Văn A</div>
-                  <div className="text-sm text-gray-600 font-normal">
-                    nguyenvana@email.com
-                  </div>
+                  <div className="font-medium">{displayName}</div>
+                  {profile.email ? (
+                    <div className="text-sm text-gray-600 font-normal truncate max-w-[200px]">
+                      {profile.email}
+                    </div>
+                  ) : null}
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>Hồ sơ</DropdownMenuItem>
-              <DropdownMenuItem>Cài đặt</DropdownMenuItem>
-              <DropdownMenuItem>Trợ giúp</DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/app/account">Tài khoản</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled className="opacity-50">
+                Cài đặt (sắp có)
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled className="opacity-50">
+                Trợ giúp (sắp có)
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout} className="text-red-600 cursor-pointer">
                 Đăng xuất
