@@ -15,8 +15,8 @@ import {
 } from './ui/dropdown-menu';
 import { useRouter } from 'next/navigation';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { clearAccessToken } from '@/lib/auth-token';
-import { clearUserProfile, profileInitials } from '@/lib/user-profile';
+import { clearAuthSession } from '@/lib/auth-session';
+import { profileInitials } from '@/lib/user-profile';
 
 interface HeaderProps {
   onNewTask?: () => void;
@@ -31,8 +31,7 @@ export default function Header({ onNewTask }: HeaderProps) {
     profile.fullName.trim() || profile.email || 'Người dùng';
 
   const handleLogout = () => {
-    clearAccessToken();
-    clearUserProfile();
+    clearAuthSession();
     router.push('/login');
   };
 

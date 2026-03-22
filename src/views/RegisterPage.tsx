@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { registerAccount, ApiError } from '@/lib/auth-api';
-import { saveUserProfile } from '@/lib/user-profile';
+import { applyAuthResponse } from '@/lib/auth-session';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -23,16 +23,13 @@ export default function RegisterPage() {
     setError(null);
     setIsSubmitting(true);
     try {
-      await registerAccount({
+      const auth = await registerAccount({
         fullName: fullName.trim(),
         email: email.trim(),
         password,
       });
-      saveUserProfile({
-        fullName: fullName.trim(),
-        email: email.trim(),
-      });
-      router.push('/login');
+      await applyAuthResponse(auth);
+      router.push('/app/projects');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Đăng ký thất bại');
     } finally {
