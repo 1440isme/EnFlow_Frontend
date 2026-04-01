@@ -1,8 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import type { Priority, Task } from '@/types/task';
+import { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import type { Priority, Task, Status } from '@/types/task';
+import { listTasks } from '@/lib/task-api';
+import { getListsByProject } from '@/lib/list-api';
+import { getStatusesByProject } from '@/lib/status-api';
+import type { ProjectListResponse, StatusesResponse } from '@/types/api';
 import {
   Table,
   TableBody,
@@ -12,14 +16,7 @@ import {
   TableRow,
 } from '../ui/table';
 import { Badge } from '../ui/badge';
-import { MoreHorizontal, Eye } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '../ui/dropdown-menu';
-import { Button } from '../ui/button';
+
 
 const priorityColors: Record<Priority, string> = {
   low: 'bg-gray-100 text-gray-700',
@@ -35,125 +32,234 @@ const priorityLabels: Record<Priority, string> = {
   urgent: 'Khẩn cấp',
 };
 
-const statusLabels = {
-  'todo': 'Chưa làm',
-  'in-progress': 'Đang làm',
-  'done': 'Hoàn thành',
-};
+
 
 export default function TaskListTab() {
   const router = useRouter();
-  const [tasks] = useState<Task[]>([]);
+  const params = useParams();
+  const projectId = params.projectId as string;
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [lists, setLists] = useState<ProjectListResponse[]>([]);
+  const [statuses, setStatuses] = useState<StatusesResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const handleViewTask = (taskId: string) => {
     router.push(`/app/tasks/${taskId}`);
   };
 
-  return (
-    <div className="bg-white rounded-lg border border-gray-200">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[40%]">Task</TableHead>
-            <TableHead>Trạng thái</TableHead>
-            <TableHead>Ưu tiên</TableHead>
-            <TableHead>Người thực hiện</TableHead>
-            <TableHead>Dự án</TableHead>
-            <TableHead>Deadline</TableHead>
-            <TableHead className="w-[50px]"></TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {tasks.length === 0 ? (
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    setError(null);
+
+    const fetchPromises = [listTasks(Number(projectId))];
+    if (projectId) {
+      fetchPromises.push(getListsByProject(Number(projectId)));
+      fetchPromises.push(getStatusesByProject(Number(projectId)));
+    } else {
+      fetchPromises.push(Promise.resolve([]));
+      fetchPromises.push(Promise.resolve([]));
+    }
+
+    Promise.all(fetchPromises)
+      .then(([t, lData, sData]) => {
+        if (!mounted) return;
+        setTasks(t || []);
+
+        let parsedLists = [];
+        const rawList = lData as any;
+        if (Array.isArray(rawList)) {
+          parsedLists = rawList;
+        } else if (rawList?.content && Array.isArray(rawList.content)) {
+          parsedLists = rawList.content;
+        } else if (rawList?.data && Array.isArray(rawList.data)) {
+          parsedLists = rawList.data;
+        } else if (rawList) {
+          parsedLists = [rawList];
+        }
+        setLists(parsedLists);
+
+        let parsedStatuses = [];
+        const rawStatus = sData as any;
+        if (Array.isArray(rawStatus)) {
+          parsedStatuses = rawStatus;
+        } else if (rawStatus?.content && Array.isArray(rawStatus.content)) {
+          parsedStatuses = rawStatus.content;
+        } else if (rawStatus?.data && Array.isArray(rawStatus.data)) {
+          parsedStatuses = rawStatus.data;
+        } else if (rawStatus) {
+          parsedStatuses = [rawStatus];
+        }
+        setStatuses(parsedStatuses);
+      })
+      .catch((err) => {
+        console.error(err);
+        setError(err?.message || 'Lỗi khi tải dữ liệu');
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [projectId]);
+
+
+
+
+
+  const renderTaskTable = (groupTasks: Task[]) => {
+    if (groupTasks.length === 0) {
+      return (
+        <div className="text-center p-6 text-sm text-gray-500 border border-dashed border-gray-200 rounded-lg bg-gray-50">
+          Không có task nào.
+        </div>
+      );
+    }
+    return (
+      <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                Chưa có task. Kết nối API để tải danh sách.
-              </TableCell>
+              <TableHead className="w-[40%] bg-gray-50/50">Name</TableHead>
+              <TableHead className="bg-gray-50/50">Assignment</TableHead>
+              <TableHead className="bg-gray-50/50">Due Date</TableHead>
+              <TableHead className="bg-gray-50/50">Priority</TableHead>
             </TableRow>
-          ) : null}
-          {tasks.map((task) => (
-            <TableRow
-              key={task.id}
-              className="cursor-pointer hover:bg-gray-50"
-              onClick={() => handleViewTask(task.id)}
-            >
-              <TableCell>
-                <div>
-                  <div className="font-medium text-gray-900">{task.title}</div>
-                  <div className="text-sm text-gray-500 line-clamp-1">{task.description}</div>
-                </div>
-              </TableCell>
-              <TableCell>
-                <Badge
-                  variant="secondary"
-                  className={
-                    task.status === 'done'
-                      ? 'bg-green-100 text-green-700 hover:bg-green-100'
-                      : task.status === 'in-progress'
-                      ? 'bg-orange-100 text-orange-700 hover:bg-orange-100'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-100'
-                  }
-                >
-                  {statusLabels[task.status]}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <Badge variant="secondary" className={priorityColors[task.priority]}>
-                  {priorityLabels[task.priority]}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <img
-                    src={task.assigneeAvatar}
-                    alt={task.assignee}
-                    className="w-8 h-8 rounded-full"
-                  />
-                  <span className="text-sm">{task.assignee}</span>
-                </div>
-              </TableCell>
-              <TableCell>
-                <span className="text-sm text-gray-600">{task.project}</span>
-              </TableCell>
-              <TableCell>
-                <span className="text-sm text-gray-600">
-                  {new Date(task.dueDate).toLocaleDateString('vi-VN')}
-                </span>
-              </TableCell>
-              <TableCell>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={(e) => {
-                      e.stopPropagation();
-                      handleViewTask(task.id);
-                    }}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      Xem chi tiết
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
-                      Chỉnh sửa
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
-                      Sao chép
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-red-600"
-                    >
-                      Xóa
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {groupTasks.map((task) => (
+              <TableRow
+                key={task.id}
+                className="cursor-pointer hover:bg-gray-50 transition-colors"
+                onClick={() => handleViewTask(task.id)}
+              >
+                <TableCell>
+                  <div>
+                    <div className="font-medium text-gray-900">{task.title}</div>
+                    <div className="text-sm text-gray-500 line-clamp-1">{task.description}</div>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    {task.assigneeAvatar ? (
+                      <img
+                        src={task.assigneeAvatar}
+                        alt={task.assignee}
+                        className="w-8 h-8 rounded-full border border-gray-200"
+                      />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs font-medium">
+                        {task.assignee?.charAt(0)?.toUpperCase()}
+                      </div>
+                    )}
+                    <span className="text-sm font-medium">{task.assignee}</span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <span className="text-sm text-gray-600">
+                    {new Date(task.dueDate).toLocaleDateString('vi-VN')}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <Badge variant="secondary" className={priorityColors[task.priority]}>
+                    {priorityLabels[task.priority]}
+                  </Badge>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    );
+  };
+
+  if (loading) {
+    return <div className="p-8 text-center text-gray-500">Đang tải...</div>;
+  }
+
+  if (error) {
+    return <div className="p-8 text-center text-red-600 font-medium">{error}</div>;
+  }
+
+  if (lists.length === 0) {
+    return (
+      <div className="p-12 text-center text-gray-500 bg-white rounded-lg border border-gray-200">
+        Dự án (Chưa có dữ liệu danh sách)
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      {Array.isArray(lists) && lists.map((list) => {
+        const listTasksArr = tasks.filter((t) => t.project === String(list.listProjectId));
+        const tasksByStatus = listTasksArr.reduce((acc, task) => {
+          const statusKey = String(task.status);
+          if (!acc[statusKey]) acc[statusKey] = [];
+          acc[statusKey].push(task);
+          return acc;
+        }, {} as Record<string, Task[]>);
+
+        return (
+          <div key={list.listProjectId} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+            <div className="bg-slate-50 px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <span className="w-2 h-6 bg-blue-500 rounded-sm"></span>
+                {list.name}
+              </h2>
+              <span className="px-3 py-1 bg-white border border-gray-200 rounded-full text-xs font-semibold text-gray-600">
+                {listTasksArr.length} Tasks
+              </span>
+            </div>
+
+            <div className="p-6 space-y-8 bg-slate-50/30">
+              {statuses.length > 0 ? (
+                statuses.map((status) => {
+                  const statusKey1 = status.name;
+                  const statusKey2 = String(status.statusId);
+                  const groupTasks = [...(tasksByStatus[statusKey1] || []), ...(tasksByStatus[statusKey2] || [])];
+                  return (
+                    <div key={status.statusId} className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-md font-semibold text-gray-700 flex items-center gap-2">
+                          <span 
+                            className="w-2 h-2 rounded-full" 
+                            style={{ backgroundColor: status.color || '#ccc' }}
+                          ></span>
+                          {status.name}
+                        </h3>
+                        <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                          {groupTasks.length}
+                        </span>
+                      </div>
+                      {renderTaskTable(groupTasks)}
+                    </div>
+                  );
+                })
+              ) : (
+                ['todo', 'in-progress', 'completed'].map((statusStr) => (
+                  <div key={statusStr} className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-md font-semibold text-gray-700 flex items-center gap-2">
+                        {statusStr === 'todo' && <span className="w-2 h-2 rounded-full bg-gray-400"></span>}
+                        {statusStr === 'in-progress' && <span className="w-2 h-2 rounded-full bg-orange-500"></span>}
+                        {statusStr === 'completed' && <span className="w-2 h-2 rounded-full bg-green-500"></span>}
+                        {statusStr}
+                      </h3>
+                      <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                        {(tasksByStatus[statusStr] || []).length}
+                      </span>
+                    </div>
+                    {renderTaskTable(tasksByStatus[statusStr] || [])}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

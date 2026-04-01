@@ -27,7 +27,7 @@ const priorityLabels: Record<Priority, string> = {
 const statusLabels = {
   todo: 'Chưa làm',
   'in-progress': 'Đang làm',
-  done: 'Hoàn thành',
+    completed: 'Hoàn thành',
 };
 
 function TaskDetailBody({ task }: { task: Task }) {
@@ -49,7 +49,7 @@ function TaskDetailBody({ task }: { task: Task }) {
                 <Badge
                   variant="secondary"
                   className={
-                    task.status === 'done'
+                    task.status === 'completed'
                       ? 'bg-green-100 text-green-700'
                       : task.status === 'in-progress'
                         ? 'bg-orange-100 text-orange-700'

@@ -2,13 +2,48 @@ import { CheckCircle2, Clock, AlertCircle, TrendingUp } from 'lucide-react';
 import type { Task, Project } from '@/types/task';
 import { Card } from '../ui/card';
 import { Progress } from '../ui/progress';
-
-const tasks: Task[] = [];
-const projects: Project[] = [];
+import { useEffect, useState } from 'react';
+import { listTasks } from '@/lib/task-api';
+import { listProjects } from '@/lib/project-api';
 
 export default function OverviewTab() {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    setError(null);
+    Promise.all([listTasks(), listProjects()])
+      .then(([t, p]) => {
+        if (!mounted) return;
+        setTasks(t || []);
+        setProjects(p || []);
+      })
+      .catch((err) => {
+        console.error(err);
+        setError(err?.message || 'Lỗi khi tải dữ liệu');
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (loading) {
+    return <Card className="p-6">Đang tải tổng quan...</Card>;
+  }
+
+  if (error) {
+    return <Card className="p-6 text-red-600">{error}</Card>;
+  }
+
   const totalTasks = tasks.length;
-  const completedTasks = tasks.filter((t) => t.status === 'done').length;
+  const completedTasks = tasks.filter((t) => t.status === 'completed').length;
   const inProgressTasks = tasks.filter((t) => t.status === 'in-progress').length;
   const todoTasks = tasks.filter((t) => t.status === 'todo').length;
   const highPriorityTasks = tasks.filter(
@@ -151,14 +186,14 @@ export default function OverviewTab() {
                     </div>
                     <span
                       className={`text-xs px-2 py-1 rounded-full ${
-                        task.status === 'done'
+                        task.status === 'completed'
                           ? 'bg-green-100 text-green-700'
                           : task.status === 'in-progress'
                             ? 'bg-orange-100 text-orange-700'
                             : 'bg-gray-100 text-gray-700'
                       }`}
                     >
-                      {task.status === 'done'
+                      {task.status === 'completed'
                         ? 'Hoàn thành'
                         : task.status === 'in-progress'
                           ? 'Đang làm'
