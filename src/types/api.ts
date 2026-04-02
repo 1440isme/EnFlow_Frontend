@@ -154,7 +154,6 @@ export type ProjectListUpdateRequest = {
 // --- STATUSES ---
 export type StatusesResponse = {
   statusId: number;
-  name: string;
   statusGroup: string;
   color: string;
   position: number;
@@ -166,7 +165,6 @@ export type StatusesResponse = {
 export type StatusesCreationRequest = {
   idProject?: number;
   idListProject?: number;
-  name: string;
   color: string;
   statusGroup: string;
   position: string | number;
@@ -174,7 +172,6 @@ export type StatusesCreationRequest = {
 };
 
 export type StatusesUpdateRequest = {
-  name: string;
   statusGroup: string;
   color: string;
   position: number;

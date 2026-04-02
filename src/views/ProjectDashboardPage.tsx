@@ -1,8 +1,8 @@
 'use client';
 
-import { Suspense, useState, useEffect } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import OverviewTab from '@/components/dashboard/OverviewTab';
 import TaskListTab from '@/components/dashboard/TaskListTab';
@@ -18,61 +18,90 @@ import type { ProjectListResponse } from '@/types/api';
 
 function ProjectDashboardContent() {
   const params = useParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;
+  const projectIdNumber = Number(projectId);
   const nameFromQuery = searchParams.get('name');
+  const listIdFromQuery = searchParams.get('listId');
   const [activeTab, setActiveTab] = useState('overview');
   const [lists, setLists] = useState<ProjectListResponse[]>([]);
-  const [selectedView, setSelectedView] = useState<string>('project');
+
+  const selectedListId = listIdFromQuery ? Number(listIdFromQuery) : null;
+  const selectedView = selectedListId ? `list-${selectedListId}` : 'project';
+
+  const selectedList = useMemo(
+    () => lists.find((list) => list.listProjectId === selectedListId) ?? null,
+    [lists, selectedListId]
+  );
+
+  const normalizeCollection = <T,>(value: unknown): T[] => {
+    if (Array.isArray(value)) return value as T[];
+
+    const raw = value as any;
+    if (raw?.content && Array.isArray(raw.content)) return raw.content as T[];
+    if (raw?.data && Array.isArray(raw.data)) return raw.data as T[];
+    if (raw) return [raw as T];
+    return [];
+  };
+
+  const loadProjectLists = useCallback(async () => {
+    if (!projectId) {
+      setLists([]);
+      return;
+    }
+
+    try {
+      const lData = await getListsByProject(Number(projectId));
+      setLists(normalizeCollection<ProjectListResponse>(lData));
+    } catch (err) {
+      console.error(err);
+    }
+  }, [projectId]);
 
   useEffect(() => {
-    let mounted = true;
-    if (projectId) {
-      getListsByProject(Number(projectId))
-        .then((lData) => {
-          if (!mounted) return;
-          let parsedLists = [];
-          const rawList = lData as any;
-          if (Array.isArray(rawList)) {
-            parsedLists = rawList;
-          } else if (rawList?.content && Array.isArray(rawList.content)) {
-            parsedLists = rawList.content;
-          } else if (rawList?.data && Array.isArray(rawList.data)) {
-            parsedLists = rawList.data;
-          } else if (rawList) {
-            parsedLists = [rawList];
-          }
-          setLists(parsedLists);
-        })
-        .catch(console.error);
-    }
-    return () => {
-      mounted = false;
+    void loadProjectLists();
+  }, [loadProjectLists]);
+
+  useEffect(() => {
+    const handleListsChanged = () => {
+      void loadProjectLists();
     };
-  }, [projectId]);
+
+    window.addEventListener('enflow:lists-changed', handleListsChanged);
+    return () => {
+      window.removeEventListener('enflow:lists-changed', handleListsChanged);
+    };
+  }, [loadProjectLists]);
 
   const projectTitle =
     nameFromQuery && nameFromQuery.trim().length > 0
       ? decodeURIComponent(nameFromQuery.trim())
       : `Dự án ${projectId}`;
 
+  const handleViewChange = (value: string) => {
+    const nextParams = new URLSearchParams(searchParams.toString());
+    if (value === 'project') {
+      nextParams.delete('listId');
+    } else if (value.startsWith('list-')) {
+      nextParams.set('listId', value.replace('list-', ''));
+    }
+
+    const query = nextParams.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname);
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <Button variant="ghost" size="sm" className="gap-2 -ml-2 text-gray-600" asChild>
-            <Link href="/app/projects">
-              <ArrowLeft className="w-4 h-4" />
-              Danh sách dự án
-            </Link>
-          </Button>
           <h1 className="text-3xl font-semibold text-gray-900">{projectTitle}</h1>
-          <p className="text-sm font-mono text-gray-500">ID: {projectId}</p>
         </div>
       </div>
 
       <div className="flex items-center gap-4">
-        <Select value={selectedView} onValueChange={setSelectedView}>
+        <Select value={selectedView} onValueChange={handleViewChange}>
           <SelectTrigger className="w-[280px] bg-white">
             <SelectValue placeholder="Chọn vùng tra cứu" />
           </SelectTrigger>
@@ -80,7 +109,7 @@ function ProjectDashboardContent() {
             <SelectItem value="project">
               <div className="flex items-center gap-2">
                 <Folder className="w-4 h-4 text-blue-500" />
-                <span className="font-medium">{projectTitle} (Toàn dự án)</span>
+                <span className="font-medium">{projectTitle} </span>
               </div>
             </SelectItem>
             {lists.length > 0 && <Separator className="my-2" />}
@@ -94,6 +123,8 @@ function ProjectDashboardContent() {
             ))}
           </SelectContent>
         </Select>
+
+
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
@@ -129,21 +160,21 @@ function ProjectDashboardContent() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-8">
-          <OverviewTab />
+          <OverviewTab projectId={projectIdNumber} listId={selectedListId} />
           <Separator />
-          <ProjectReportsSection projectScoped />
+          <ProjectReportsSection projectScoped projectId={projectIdNumber} listId={selectedListId} />
         </TabsContent>
 
         <TabsContent value="list">
-          <TaskListTab />
+          <TaskListTab listId={selectedListId} />
         </TabsContent>
 
         <TabsContent value="kanban">
-          <KanbanBoardTab />
+          <KanbanBoardTab listId={selectedListId} />
         </TabsContent>
 
         <TabsContent value="calendar">
-          <ProjectCalendarPanel />
+          <ProjectCalendarPanel scopeLabel={selectedList ? selectedList.name : projectTitle} />
         </TabsContent>
       </Tabs>
     </div>

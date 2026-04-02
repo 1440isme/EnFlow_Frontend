@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { Project, Task } from '@/types/task';
 import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -15,20 +15,35 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { Folder, TrendingUp, Plus } from 'lucide-react';
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Folder, TrendingUp, Plus, MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import { listTasks } from '@/lib/task-api';
-import { getProjectsByWorkspace, createProject } from '@/lib/project-api';
+import { getProjectsByWorkspace, createProject, updateProject, deleteProject } from '@/lib/project-api';
 import { getWorkspaceSnapshot, saveWorkspaceSnapshot, workspaceResponseToSnapshot } from '@/lib/workspace-storage';
 import { getStoredUserId } from '@/lib/auth-session';
 import { listWorkspacesByOwner } from '@/lib/workspace-api';
 
 
 export default function ProjectsPage() {
+  const router = useRouter();
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [open, setOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Form state
   const [name, setName] = useState('');
@@ -70,7 +85,7 @@ export default function ProjectsPage() {
       })
       .catch((err) => {
         console.error(err);
-        setError(err?.message || 'Lỗi khi tải dữ liệu dự án');
+        setError(err?.message || 'Failed to load project data.');
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -84,38 +99,22 @@ export default function ProjectsPage() {
     setName('');
     setKey('');
     setDescription('');
+    setFormError(null);
   };
 
 
   const isKeyDuplicate =
     key.trim().length > 0 &&
-    projectList.some((p) => p.key.toLowerCase() === key.trim().toLowerCase());
-  const canSubmit = name.trim() && key.trim() && !isKeyDuplicate;
+    projectList.some(
+      (p) => p.key.toLowerCase() === key.trim().toLowerCase() && p.id !== editingProject?.id
+    );
+  const canSubmit = Boolean(name.trim() && key.trim() && !isKeyDuplicate);
 
-  const handleCreate = async () => {
+  const handleSaveProject = async () => {
     if (!canSubmit) return;
-    setError(null);
+    setFormError(null);
+    setSubmitting(true);
     try {
-      // read selected/last workspace from local snapshot (client-only)
-      let snapshot = getWorkspaceSnapshot();
-      let wsId = snapshot.workspaceId;
-      if (!wsId) {
-        // fallback: try to fetch workspaces by stored user id and pick personal
-        const userId = getStoredUserId();
-        if (!userId) {
-          throw new Error('Không tìm thấy workspace hoặc user đã đăng nhập. Vui lòng đăng nhập lại.');
-        }
-        const list = await listWorkspacesByOwner(userId);
-        const personal = list.find((w) => w.workspaceKey === `personal-${userId}`) ?? list[0];
-        if (!personal) {
-          throw new Error('Không tìm thấy workspace cho user này.');
-        }
-        // persist snapshot locally for future calls
-        saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
-        snapshot = getWorkspaceSnapshot();
-        wsId = snapshot.workspaceId;
-      }
-
       const payload = {
         name: name.trim(),
         projectKey: key.trim().toUpperCase(),
@@ -124,36 +123,119 @@ export default function ProjectsPage() {
         archive: false,
       };
 
-      if (!wsId) {
-         throw new Error('Workspace ID is missing');
-      }
+      if (editingProject) {
+        const updated = await updateProject(Number(editingProject.id), payload);
+        setProjectList((prev) =>
+          prev.map((project) =>
+            project.id === editingProject.id
+              ? {
+                  ...project,
+                  name: updated.name,
+                  key: updated.projectKey,
+                  description: updated.description || '',
+                }
+              : project
+          )
+        );
+      } else {
+        // read selected/last workspace from local snapshot (client-only)
+        let snapshot = getWorkspaceSnapshot();
+        let wsId = snapshot.workspaceId;
+        if (!wsId) {
+          // fallback: try to fetch workspaces by stored user id and pick personal
+          const userId = getStoredUserId();
+          if (!userId) {
+            throw new Error('Workspace or signed-in user not found. Please sign in again.');
+          }
+          const list = await listWorkspacesByOwner(userId);
+          const personal = list.find((w) => w.workspaceKey === `personal-${userId}`) ?? list[0];
+          if (!personal) {
+            throw new Error('No workspace found for this user.');
+          }
+          // persist snapshot locally for future calls
+          saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+          snapshot = getWorkspaceSnapshot();
+          wsId = snapshot.workspaceId;
+        }
 
-      const created = await createProject(wsId, payload);
-      setProjectList((prev) => [...prev, {
+        if (!wsId) {
+          throw new Error('Workspace ID is missing');
+        }
+
+        const created = await createProject(wsId, payload);
+        setProjectList((prev) => [
+          ...prev,
+          {
             id: created.idProject.toString(),
             name: created.name,
             key: created.projectKey,
             description: created.description || '',
             color: '#3b82f6',
-            tasksCount: 0
-      } as any]);
+            tasksCount: 0,
+          } as any,
+        ]);
+      }
+
       resetForm();
+      setEditingProject(null);
       setOpen(false);
     } catch (err: any) {
       console.error(err);
-      setError(err?.message || 'Lỗi khi tạo dự án');
+      setFormError(err?.message || 'Failed to save project.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const openCreateDialog = () => {
+    resetForm();
+    setEditingProject(null);
+    setOpen(true);
+  };
+
+  const openEditDialog = (project: Project) => {
+    setEditingProject(project);
+    setName(project.name);
+    setKey(project.key);
+    setDescription(project.description || '');
+    setFormError(null);
+    setOpen(true);
+  };
+
+  const openDeleteDialog = (project: Project) => {
+    setDeleteTarget(project);
+    setDeleteError(null);
+    setDeleteOpen(true);
+  };
+
+  const handleDeleteProject = async () => {
+    if (!deleteTarget) return;
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      await deleteProject(Number(deleteTarget.id));
+      setProjectList((prev) => prev.filter((project) => project.id !== deleteTarget.id));
+      setTasks((prev) => prev.filter((task) => task.project !== deleteTarget.id));
+      setDeleteOpen(false);
+      setDeleteTarget(null);
+    } catch (err: any) {
+      console.error(err);
+      setDeleteError(err?.message || 'Failed to delete project.');
+    } finally {
+      setDeleting(false);
     }
   };
 
   const handleClose = () => {
     resetForm();
+    setEditingProject(null);
     setOpen(false);
   };
 
   if (loading) {
     return (
       <div className="p-6">
-        <Card className="p-12 text-center text-gray-600">Đang tải dự án...</Card>
+        <Card className="p-12 text-center text-gray-600">Loading projects...</Card>
       </div>
     );
   }
@@ -177,7 +259,7 @@ export default function ProjectsPage() {
 
         <Button
           id="btn-new-project"
-          onClick={() => setOpen(true)}
+          onClick={openCreateDialog}
           className="flex items-center gap-2"
         >
           <Plus className="w-4 h-4" />
@@ -191,7 +273,7 @@ export default function ProjectsPage() {
           <Folder className="w-12 h-12 mx-auto opacity-30 mb-2" />
           <p className="mb-3">No projects yet.</p>
           <button
-            onClick={() => setOpen(true)}
+            onClick={openCreateDialog}
             className="text-indigo-600 text-2xl font-semibold hover:underline"
           >
             Create your first project →
@@ -211,8 +293,19 @@ export default function ProjectsPage() {
             const dashboardHref = `/app/projects/${encodeURIComponent(project.id)}/dashboard?name=${encodeURIComponent(project.name)}`;
 
             return (
-              <Link key={project.id} href={dashboardHref} className="block">
-                <Card className="p-6 hover:shadow-lg transition-shadow cursor-pointer h-full">
+              <Card
+                key={project.id}
+                className="p-6 hover:shadow-lg transition-shadow cursor-pointer h-full"
+                onClick={() => router.push(dashboardHref)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    router.push(dashboardHref);
+                  }
+                }}
+              >
                   <div className="space-y-4">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-3">
@@ -229,6 +322,41 @@ export default function ProjectsPage() {
                       <div className="flex items-center gap-1 text-sm text-gray-600">
                         <TrendingUp className="w-4 h-4" />
                         {progress}%
+                        <DropdownMenu modal={false}>
+                          <DropdownMenuTrigger
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-accent hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#004ba8]/30 ml-2 flex-shrink-0"
+                            aria-label={`Options for project ${project.name}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                            }}
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                           </DropdownMenuTrigger>
+                           <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenuItem
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                openEditDialog(project);
+                              }}
+                              className="cursor-pointer"
+                            >
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                openDeleteDialog(project);
+                              }}
+                              className="cursor-pointer text-red-600"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
 
@@ -267,22 +395,25 @@ export default function ProjectsPage() {
                       )}
                     </div>
                   </div>
-                </Card>
-              </Link>
+              </Card>
             );
           })}
         </div>
       )}
 
-      {/* ── New Project Dialog ── */}
+      {/* ── Create / Edit Project Dialog ── */}
       <Dialog open={open} onOpenChange={handleClose}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Plus className="w-5 h-5" />
-              Create New Project
+              {editingProject ? 'Edit Project' : 'Create New Project'}
             </DialogTitle>
           </DialogHeader>
+
+          {formError ? (
+            <p className="text-sm text-red-600">{formError}</p>
+          ) : null}
 
           <div className="space-y-4 py-2">
             {/* Tên dự án */}
@@ -343,11 +474,42 @@ export default function ProjectsPage() {
             </Button>
             <Button
               id="btn-create-project-confirm"
-              onClick={handleCreate}
-              disabled={!canSubmit}
+              onClick={handleSaveProject}
+              disabled={!canSubmit || submitting}
             >
               <Plus className="w-4 h-4 mr-1" />
-              Create Project
+              {submitting ? '...' : editingProject ? 'Save Project' : 'Create Project'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Project Dialog ── */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Project</DialogTitle>
+          </DialogHeader>
+
+          <p className="text-sm text-gray-600">
+            Are you sure you want to delete <span className="font-medium">{deleteTarget?.name}</span>? This action cannot be undone.
+          </p>
+          {deleteError ? <p className="text-sm text-red-600">{deleteError}</p> : null}
+
+          <DialogFooter className="gap-2 pt-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteOpen(false);
+                setDeleteTarget(null);
+                setDeleteError(null);
+              }}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteProject} disabled={deleting}>
+              {deleting ? '...' : 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>

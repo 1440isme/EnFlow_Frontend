@@ -1,7 +1,7 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
 import { ArrowLeft, Calendar, User, Flag, Folder, Tag, MessageSquare, Paperclip } from 'lucide-react';
 import type { Priority, Task } from '@/types/task';
 import { Button } from '@/components/ui/button';
@@ -9,10 +9,14 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { getTaskById } from '@/lib/task-api';
+import { getStatusById } from '@/lib/status-api';
+import type { StatusesResponse } from '@/types/api';
 
 const priorityColors: Record<Priority, string> = {
   low: 'bg-gray-100 text-gray-700',
   medium: 'bg-blue-100 text-blue-700',
+  normal: 'bg-green-100 text-green-700',
   high: 'bg-orange-100 text-orange-700',
   urgent: 'bg-red-100 text-red-700',
 };
@@ -20,17 +24,43 @@ const priorityColors: Record<Priority, string> = {
 const priorityLabels: Record<Priority, string> = {
   low: 'Thấp',
   medium: 'Trung bình',
+  normal: 'Bình thường',
   high: 'Cao',
   urgent: 'Khẩn cấp',
 };
 
-const statusLabels = {
-  todo: 'Chưa làm',
-  'in-progress': 'Đang làm',
-    completed: 'Hoàn thành',
+const statusBadgeClasses: Record<string, string> = {
+  'to do': 'bg-gray-100 text-gray-700',
+  'in progress': 'bg-orange-100 text-orange-700',
+  completed: 'bg-green-100 text-green-700',
+  review: 'bg-blue-100 text-blue-700',
+  testing: 'bg-purple-100 text-purple-700',
+  deploy: 'bg-indigo-100 text-indigo-700',
+  backlog: 'bg-slate-100 text-slate-700',
+  idea: 'bg-emerald-100 text-emerald-700',
 };
 
-function TaskDetailBody({ task }: { task: Task }) {
+function normalizeStatusGroup(value: unknown) {
+  return String(value ?? '').trim().toLowerCase().replace(/[_-]+/g, ' ');
+}
+
+function getStatusBadgeClass(statusGroup?: string) {
+  return statusBadgeClasses[normalizeStatusGroup(statusGroup)] ?? 'bg-gray-100 text-gray-700';
+}
+
+function getStatusLabel(statusGroup?: string) {
+  return statusGroup?.trim() || 'Không xác định';
+}
+
+function TaskDetailBody({
+  task,
+  statusLabel,
+  statusBadgeClass,
+}: {
+  task: Task;
+  statusLabel: string;
+  statusBadgeClass: string;
+}) {
   const router = useRouter();
 
   return (
@@ -48,15 +78,9 @@ function TaskDetailBody({ task }: { task: Task }) {
                 <h1 className="text-2xl font-semibold text-gray-900">{task.title}</h1>
                 <Badge
                   variant="secondary"
-                  className={
-                    task.status === 'completed'
-                      ? 'bg-green-100 text-green-700'
-                      : task.status === 'in-progress'
-                        ? 'bg-orange-100 text-orange-700'
-                        : 'bg-gray-100 text-gray-700'
-                  }
+                  className={statusBadgeClass}
                 >
-                  {statusLabels[task.status]}
+                  {statusLabel}
                 </Badge>
               </div>
 
@@ -225,17 +249,75 @@ export default function TaskDetailPage() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string | undefined;
-  const [task] = useState<Task | undefined>(undefined);
+  const [task, setTask] = useState<Task | null>(null);
+  const [status, setStatus] = useState<StatusesResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!task) {
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadTask() {
+      if (!id) {
+        setLoading(false);
+        setError('Thiếu id task trong URL.');
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const loadedTask = await getTaskById(Number(id));
+        if (!mounted) return;
+        setTask(loadedTask);
+
+        if (loadedTask.statusId) {
+          const loadedStatus = await getStatusById(loadedTask.statusId);
+          if (!mounted) return;
+          setStatus(loadedStatus);
+        } else {
+          setStatus(null);
+        }
+      } catch (err) {
+        if (!mounted) return;
+        setTask(null);
+        setStatus(null);
+        setError(err instanceof Error ? err.message : 'Không tải được task.');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    void loadTask();
+
+    return () => {
+      mounted = false;
+    };
+  }, [id]);
+
+  const statusLabel = useMemo(() => getStatusLabel(status?.statusGroup), [status]);
+  const statusBadgeClass = useMemo(() => getStatusBadgeClass(status?.statusGroup), [status]);
+
+  if (loading) {
     return (
       <div className="p-6">
         <div className="text-center py-12">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-2">Chưa tải được task</h2>
+          <h2 className="text-2xl font-semibold text-gray-900 mb-2">Đang tải task...</h2>
+          <p className="text-gray-600 mb-4">Vui lòng chờ trong giây lát.</p>
+          <Button onClick={() => router.push('/app/projects')}>Quay lại Project</Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !task) {
+    return (
+      <div className="p-6">
+        <div className="text-center py-12">
+          <h2 className="text-2xl font-semibold text-gray-900 mb-2">Không tải được task</h2>
           <p className="text-gray-600 mb-4">
-            {id
-              ? `Gọi API với id: ${id} để lấy chi tiết task.`
-              : 'Thiếu id task trong URL.'}
+            {error || (id ? `Không tìm thấy task với id: ${id}` : 'Thiếu id task trong URL.')}
           </p>
           <Button onClick={() => router.push('/app/projects')}>Quay lại Project</Button>
         </div>
@@ -243,5 +325,7 @@ export default function TaskDetailPage() {
     );
   }
 
-  return <TaskDetailBody task={task} />;
+  return (
+    <TaskDetailBody task={task} statusLabel={statusLabel} statusBadgeClass={statusBadgeClass} />
+  );
 }

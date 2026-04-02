@@ -3,10 +3,15 @@ import type { Task, Project } from '@/types/task';
 import { Card } from '../ui/card';
 import { Progress } from '../ui/progress';
 import { useEffect, useState } from 'react';
-import { listTasks } from '@/lib/task-api';
+import { getTasksByList, listTasks } from '@/lib/task-api';
 import { listProjects } from '@/lib/project-api';
 
-export default function OverviewTab() {
+type Props = {
+  projectId?: number;
+  listId?: number | null;
+};
+
+export default function OverviewTab({ projectId, listId }: Props) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -16,7 +21,10 @@ export default function OverviewTab() {
     let mounted = true;
     setLoading(true);
     setError(null);
-    Promise.all([listTasks(), listProjects()])
+    Promise.all([
+      listId ? getTasksByList(listId) : listTasks(projectId),
+      listProjects(),
+    ])
       .then(([t, p]) => {
         if (!mounted) return;
         setTasks(t || []);
@@ -32,7 +40,7 @@ export default function OverviewTab() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [projectId, listId]);
 
   if (loading) {
     return <Card className="p-6">Đang tải tổng quan...</Card>;

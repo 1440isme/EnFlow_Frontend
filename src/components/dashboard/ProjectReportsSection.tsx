@@ -3,15 +3,17 @@ import { BarChart3, PieChart, TrendingUp, Users, Target } from 'lucide-react';
 import type { Task, Project } from '@/types/task';
 import { Progress } from '@/components/ui/progress';
 import { useEffect, useState } from 'react';
-import { listTasks } from '@/lib/task-api';
+import { getTasksByList, listTasks } from '@/lib/task-api';
 import { listProjects } from '@/lib/project-api';
 
 type Props = {
   /** Ẩn khối so sánh nhiều dự án; đổi KPI cuối cho phù hợp một dự án */
   projectScoped?: boolean;
+  projectId?: number;
+  listId?: number | null;
 };
 
-export default function ProjectReportsSection({ projectScoped }: Props) {
+export default function ProjectReportsSection({ projectScoped, projectId, listId }: Props) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,7 +23,10 @@ export default function ProjectReportsSection({ projectScoped }: Props) {
     let mounted = true;
     setLoading(true);
     setError(null);
-    Promise.all([listTasks(), listProjects()])
+    Promise.all([
+      listId ? getTasksByList(listId) : listTasks(projectId),
+      listProjects(),
+    ])
       .then(([t, p]) => {
         if (!mounted) return;
         setTasks(t || []);
@@ -37,7 +42,7 @@ export default function ProjectReportsSection({ projectScoped }: Props) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [projectId, listId]);
 
   if (loading) {
     return <Card className="p-6">Đang tải báo cáo...</Card>;

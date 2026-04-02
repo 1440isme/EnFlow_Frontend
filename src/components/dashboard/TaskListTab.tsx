@@ -2,11 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import type { Priority, Task, Status } from '@/types/task';
-import { listTasks } from '@/lib/task-api';
+import type { Priority, Task } from '@/types/task';
+import { getTasksByList, listTasks } from '@/lib/task-api';
 import { getListsByProject } from '@/lib/list-api';
 import { getStatusesByProject } from '@/lib/status-api';
 import type { ProjectListResponse, StatusesResponse } from '@/types/api';
+import CreateListDialog from './CreateListDialog';
+import RenameListDialog from './RenameListDialog';
+import DeleteListDialog from './DeleteListDialog';
 import {
   Table,
   TableBody,
@@ -16,11 +19,20 @@ import {
   TableRow,
 } from '../ui/table';
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
+import { ChevronDown, ChevronRight, Plus, MoreVertical, Pencil, Trash2 } from 'lucide-react';
 
 
 const priorityColors: Record<Priority, string> = {
   low: 'bg-gray-100 text-gray-700',
   medium: 'bg-blue-100 text-blue-700',
+  normal: 'bg-green-100 text-green-700',
   high: 'bg-orange-100 text-orange-700',
   urgent: 'bg-red-100 text-red-700',
 };
@@ -28,13 +40,15 @@ const priorityColors: Record<Priority, string> = {
 const priorityLabels: Record<Priority, string> = {
   low: 'Thấp',
   medium: 'Trung bình',
+  normal: 'Bình thường',
   high: 'Cao',
   urgent: 'Khẩn cấp',
 };
+export type TaskListTabProps = {
+  listId?: number | null;
+};
 
-
-
-export default function TaskListTab() {
+export default function TaskListTab({ listId }: TaskListTabProps) {
   const router = useRouter();
   const params = useParams();
   const projectId = params.projectId as string;
@@ -43,9 +57,86 @@ export default function TaskListTab() {
   const [statuses, setStatuses] = useState<StatusesResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [createListOpen, setCreateListOpen] = useState(false);
+  const [collapsedLists, setCollapsedLists] = useState<Record<number, boolean>>({});
+  const [selectedListForRename, setSelectedListForRename] = useState<ProjectListResponse | null>(null);
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [selectedListForDelete, setSelectedListForDelete] = useState<ProjectListResponse | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  const normalizeCollection = <T,>(value: unknown): T[] => {
+    if (Array.isArray(value)) return value as T[];
+
+    const raw = value as any;
+    if (raw?.content && Array.isArray(raw.content)) return raw.content as T[];
+    if (raw?.data && Array.isArray(raw.data)) return raw.data as T[];
+    if (raw) return [raw as T];
+    return [];
+  };
+
+  const fetchData = async () => {
+    const projectNum = Number(projectId);
+    const tasksPromise = listId ? getTasksByList(listId) : listTasks(projectNum);
+    const listsPromise = projectId ? getListsByProject(projectNum) : Promise.resolve([] as ProjectListResponse[]);
+    const statusesPromise = projectId ? getStatusesByProject(projectNum) : Promise.resolve([] as StatusesResponse[]);
+
+    const [t, lData, sData] = await Promise.all([tasksPromise, listsPromise, statusesPromise]);
+
+    return {
+      tasks: t || [],
+      lists: normalizeCollection<ProjectListResponse>(lData),
+      statuses: normalizeCollection<StatusesResponse>(sData),
+    };
+  };
 
   const handleViewTask = (taskId: string) => {
     router.push(`/app/tasks/${taskId}`);
+  };
+
+  const handleToggleList = (listProjectId: number) => {
+    setCollapsedLists((current) => ({
+      ...current,
+      [listProjectId]: !current[listProjectId],
+    }));
+  };
+
+  const refreshData = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await fetchData();
+      setTasks(data.tasks);
+      setLists(data.lists);
+      setStatuses(data.statuses);
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.message || 'Lỗi khi tải dữ liệu');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isProjectScope = !listId;
+
+  const handleListCreated = async () => {
+    await refreshData();
+    window.dispatchEvent(new Event('enflow:lists-changed'));
+  };
+
+  const handleRenameClick = (list: ProjectListResponse) => {
+    setSelectedListForRename(list);
+    setRenameDialogOpen(true);
+  };
+
+  const handleDeleteClick = (list: ProjectListResponse) => {
+    setSelectedListForDelete(list);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleListUpdated = async () => {
+    await refreshData();
+    window.dispatchEvent(new Event('enflow:lists-changed'));
   };
 
   useEffect(() => {
@@ -53,47 +144,15 @@ export default function TaskListTab() {
     setLoading(true);
     setError(null);
 
-    const fetchPromises = [listTasks(Number(projectId))];
-    if (projectId) {
-      fetchPromises.push(getListsByProject(Number(projectId)));
-      fetchPromises.push(getStatusesByProject(Number(projectId)));
-    } else {
-      fetchPromises.push(Promise.resolve([]));
-      fetchPromises.push(Promise.resolve([]));
-    }
-
-    Promise.all(fetchPromises)
-      .then(([t, lData, sData]) => {
+    fetchData()
+      .then((data) => {
         if (!mounted) return;
-        setTasks(t || []);
-
-        let parsedLists = [];
-        const rawList = lData as any;
-        if (Array.isArray(rawList)) {
-          parsedLists = rawList;
-        } else if (rawList?.content && Array.isArray(rawList.content)) {
-          parsedLists = rawList.content;
-        } else if (rawList?.data && Array.isArray(rawList.data)) {
-          parsedLists = rawList.data;
-        } else if (rawList) {
-          parsedLists = [rawList];
-        }
-        setLists(parsedLists);
-
-        let parsedStatuses = [];
-        const rawStatus = sData as any;
-        if (Array.isArray(rawStatus)) {
-          parsedStatuses = rawStatus;
-        } else if (rawStatus?.content && Array.isArray(rawStatus.content)) {
-          parsedStatuses = rawStatus.content;
-        } else if (rawStatus?.data && Array.isArray(rawStatus.data)) {
-          parsedStatuses = rawStatus.data;
-        } else if (rawStatus) {
-          parsedStatuses = [rawStatus];
-        }
-        setStatuses(parsedStatuses);
+        setTasks(data.tasks);
+        setLists(data.lists);
+        setStatuses(data.statuses);
       })
       .catch((err) => {
+        if (!mounted) return;
         console.error(err);
         setError(err?.message || 'Lỗi khi tải dữ liệu');
       })
@@ -103,7 +162,7 @@ export default function TaskListTab() {
     return () => {
       mounted = false;
     };
-  }, [projectId]);
+  }, [projectId, listId]);
 
 
 
@@ -183,80 +242,162 @@ export default function TaskListTab() {
     return <div className="p-8 text-center text-red-600 font-medium">{error}</div>;
   }
 
-  if (lists.length === 0) {
-    return (
-      <div className="p-12 text-center text-gray-500 bg-white rounded-lg border border-gray-200">
-        Dự án (Chưa có dữ liệu danh sách)
-      </div>
-    );
-  }
+  const displayedLists = listId ? lists.filter((list) => list.listProjectId === listId) : lists;
 
   return (
-    <div className="space-y-8">
-      {Array.isArray(lists) && lists.map((list) => {
-        const listTasksArr = tasks.filter((t) => t.project === String(list.listProjectId));
+    <div className="space-y-6">
+      <CreateListDialog
+        open={createListOpen}
+        onOpenChange={setCreateListOpen}
+        projectId={Number(projectId)}
+        lists={lists}
+        onCreated={handleListCreated}
+      />
+
+      <RenameListDialog
+        open={renameDialogOpen}
+        onOpenChange={setRenameDialogOpen}
+        list={selectedListForRename}
+        onUpdated={handleListUpdated}
+      />
+
+      <DeleteListDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        list={selectedListForDelete}
+        onDeleted={handleListUpdated}
+      />
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-1">
+
+        </div>
+        {isProjectScope ? (
+          <Button type="button" className="gap-2 self-start sm:self-auto" onClick={() => setCreateListOpen(true)}>
+            <Plus className="w-4 h-4" />
+            Create List
+          </Button>
+        ) : null}
+      </div>
+
+      {displayedLists.length === 0 ? (
+        <div className="p-12 text-center text-gray-500 bg-white rounded-lg border border-gray-200 space-y-4">
+          <div>{isProjectScope ? 'No lists have been created in this project yet.' : 'No lists found.'}</div>
+          {isProjectScope ? (
+            <Button type="button" onClick={() => setCreateListOpen(true)} className="gap-2">
+              <Plus className="w-4 h-4" />
+              Create List
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {Array.isArray(displayedLists) && displayedLists.map((list) => {
+        const listTasksArr = tasks.filter((t) => Number(t.listId) === list.listProjectId);
+        const listStatuses = statuses
+          .filter((status) => Number(status.listId) === list.listProjectId)
+          .sort((a, b) => Number(a.position) - Number(b.position));
         const tasksByStatus = listTasksArr.reduce((acc, task) => {
           const statusKey = String(task.status);
           if (!acc[statusKey]) acc[statusKey] = [];
           acc[statusKey].push(task);
           return acc;
         }, {} as Record<string, Task[]>);
+        const isCollapsed = Boolean(collapsedLists[list.listProjectId]);
 
         return (
           <div key={list.listProjectId} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
             <div className="bg-slate-50 px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <div className="flex items-center gap-3 min-w-0">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-gray-500 hover:text-gray-900"
+                  onClick={() => handleToggleList(list.listProjectId)}
+                  aria-expanded={!isCollapsed}
+                  aria-label={isCollapsed ? `Mở rộng list ${list.name}` : `Thu gọn list ${list.name}`}
+                >
+                  {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </Button>
                 <span className="w-2 h-6 bg-blue-500 rounded-sm"></span>
-                {list.name}
-              </h2>
+                <h2 className="text-lg font-bold text-slate-800 truncate">{list.name}</h2>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-accent hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#004ba8]/30 ml-2 flex-shrink-0"
+                    aria-label={`Tùy chọn cho list ${list.name}`}
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => handleRenameClick(list)} className="cursor-pointer">
+                      <Pencil className="mr-2 h-4 w-4" />
+                      <span>Rename</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => handleDeleteClick(list)}
+                      className="cursor-pointer text-red-600"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      <span>Delete</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
               <span className="px-3 py-1 bg-white border border-gray-200 rounded-full text-xs font-semibold text-gray-600">
                 {listTasksArr.length} Tasks
               </span>
             </div>
 
-            <div className="p-6 space-y-8 bg-slate-50/30">
-              {statuses.length > 0 ? (
-                statuses.map((status) => {
-                  const statusKey1 = status.name;
-                  const statusKey2 = String(status.statusId);
-                  const groupTasks = [...(tasksByStatus[statusKey1] || []), ...(tasksByStatus[statusKey2] || [])];
-                  return (
-                    <div key={status.statusId} className="space-y-3">
+            {!isCollapsed ? (
+              <div className="p-6 space-y-8 bg-slate-50/30">
+                {listStatuses.length > 0 ? (
+                  listStatuses.map((status) => {
+                    const statusKey1 = status.statusGroup;
+                    const statusKey2 = String(status.statusId);
+                    const groupTasks = [...(tasksByStatus[statusKey1] || []), ...(tasksByStatus[statusKey2] || [])];
+                    return (
+                      <div key={status.statusId} className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-md font-semibold text-gray-700 flex items-center gap-2">
+                            <span 
+                              className="w-2 h-2 rounded-full" 
+                              style={{ backgroundColor: status.color || '#ccc' }}
+                            ></span>
+                            {status.statusGroup}
+                          </h3>
+                          <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                            {groupTasks.length}
+                          </span>
+                        </div>
+                        {renderTaskTable(groupTasks)}
+                      </div>
+                    );
+                  })
+                ) : (
+                  [
+                    { key: 'todo', label: 'TO DO' },
+                    { key: 'in-progress', label: 'IN PROGRESS' },
+                    { key: 'completed', label: 'COMPLETED' },
+                  ].map(({ key, label }) => (
+                    <div key={key} className="space-y-3">
                       <div className="flex items-center justify-between">
                         <h3 className="text-md font-semibold text-gray-700 flex items-center gap-2">
-                          <span 
-                            className="w-2 h-2 rounded-full" 
-                            style={{ backgroundColor: status.color || '#ccc' }}
-                          ></span>
-                          {status.name}
+                          {key === 'todo' && <span className="w-2 h-2 rounded-full bg-gray-400"></span>}
+                          {key === 'in-progress' && <span className="w-2 h-2 rounded-full bg-orange-500"></span>}
+                          {key === 'completed' && <span className="w-2 h-2 rounded-full bg-green-500"></span>}
+                          {label}
                         </h3>
                         <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                          {groupTasks.length}
+                          {(tasksByStatus[key] || []).length}
                         </span>
                       </div>
-                      {renderTaskTable(groupTasks)}
+                      {renderTaskTable(tasksByStatus[key] || [])}
                     </div>
-                  );
-                })
-              ) : (
-                ['todo', 'in-progress', 'completed'].map((statusStr) => (
-                  <div key={statusStr} className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-md font-semibold text-gray-700 flex items-center gap-2">
-                        {statusStr === 'todo' && <span className="w-2 h-2 rounded-full bg-gray-400"></span>}
-                        {statusStr === 'in-progress' && <span className="w-2 h-2 rounded-full bg-orange-500"></span>}
-                        {statusStr === 'completed' && <span className="w-2 h-2 rounded-full bg-green-500"></span>}
-                        {statusStr}
-                      </h3>
-                      <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                        {(tasksByStatus[statusStr] || []).length}
-                      </span>
-                    </div>
-                    {renderTaskTable(tasksByStatus[statusStr] || [])}
-                  </div>
-                ))
-              )}
-            </div>
+                  ))
+                )}
+              </div>
+            ) : null}
           </div>
         );
       })}

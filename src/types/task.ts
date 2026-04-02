@@ -7,6 +7,7 @@ export interface Task {
   description: string;
   status: Status;
   statusId?: number;
+  listId?: number;
   priority: Priority;
   assignee: string;
   assigneeAvatar: string;
