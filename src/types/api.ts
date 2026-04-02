@@ -95,3 +95,135 @@ export type WorkspaceMemberUpdateRequest = {
   roleInWorkspace: string;
   isActive: boolean;
 };
+
+// --- PROJECTS ---
+export type ProjectResponse = {
+  idProject: number;
+  name: string;
+  projectKey: string;
+  description: string;
+  isPrivate: boolean;
+  archived: boolean;
+  workspaceId: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type ProjectCreationRequest = {
+  workspaceId?: number;
+  name: string;
+  projectKey: string;
+  description: string;
+  isPrivate: boolean;
+  archive: boolean;
+  createdAt?: string;
+};
+
+// --- LISTS (Columns) ---
+export type ProjectListResponse = {
+  listProjectId: number;
+  name: string;
+  description: string;
+  position: number;
+  isPrivate: boolean;
+  archived: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  projectId: number;
+};
+
+export type ProjectListCreationRequest = {
+  projectId?: number;
+  name: string;
+  description: string;
+  position: number;
+  isPrivate: boolean;
+  archived: boolean;
+  createdAt?: string;
+};
+
+export type ProjectListUpdateRequest = {
+  name: string;
+  projectKey?: string;
+  description: string;
+  position: number;
+  archived: boolean;
+  isPrivate: boolean;
+};
+
+// --- STATUSES ---
+export type StatusesResponse = {
+  statusId: number;
+  statusGroup: string;
+  color: string;
+  position: number;
+  isDefault: boolean;
+  listId: number;
+  projectId: number;
+};
+
+export type StatusesCreationRequest = {
+  idProject?: number;
+  idListProject?: number;
+  color: string;
+  statusGroup: string;
+  position: string | number;
+  isDefault: boolean;
+};
+
+export type StatusesUpdateRequest = {
+  statusGroup: string;
+  color: string;
+  position: number;
+  isDefault: boolean;
+};
+
+// --- TASKS ---
+export type TaskResponse = {
+  taskId: number;
+  projectId: number;
+  listId: number;
+  statusId: number;
+  parentTaskId: number | null;
+  reporterId: number;
+  taskCode: string;
+  title: string;
+  description: string;
+  taskType: string;
+  priority: string;
+  startDate: string | null;
+  dueDate: string | null;
+  completedAt: string | null;
+  resolution: string | null;
+  timeEstimateDays: number | null;
+  timeSpentDays: number | null;
+  points: number | null;
+  position: number;
+  isPrivate: boolean;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string | null;
+};
+
+export type TaskUpdateRequest = {
+  listId?: number;
+  statusId?: number;
+  parentTaskId?: number | null;
+  reporterId?: number;
+  taskCode?: string;
+  title?: string;
+  description?: string;
+  taskType?: string;
+  priority?: string;
+  startDate?: string | null;
+  dueDate?: string | null;
+  completedAt?: string | null;
+  resolution?: string;
+  timeEstimateDays?: number;
+  timeSpentDays?: number;
+  points?: number;
+  position?: number;
+  isPrivate?: boolean;
+  archived?: boolean;
+};
+
