@@ -2,18 +2,58 @@ import { Card } from '@/components/ui/card';
 import { BarChart3, PieChart, TrendingUp, Users, Target } from 'lucide-react';
 import type { Task, Project } from '@/types/task';
 import { Progress } from '@/components/ui/progress';
-
-const tasks: Task[] = [];
-const projects: Project[] = [];
+import { useEffect, useState } from 'react';
+import { getTasksByList, listTasks } from '@/lib/task-api';
+import { listProjects } from '@/lib/project-api';
 
 type Props = {
   /** Ẩn khối so sánh nhiều dự án; đổi KPI cuối cho phù hợp một dự án */
   projectScoped?: boolean;
+  projectId?: number;
+  listId?: number | null;
 };
 
-export default function ProjectReportsSection({ projectScoped }: Props) {
+export default function ProjectReportsSection({ projectScoped, projectId, listId }: Props) {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      listId ? getTasksByList(listId) : listTasks(projectId),
+      listProjects(),
+    ])
+      .then(([t, p]) => {
+        if (!mounted) return;
+        setTasks(t || []);
+        setProjects(p || []);
+      })
+      .catch((err) => {
+        console.error(err);
+        setError(err?.message || 'Lỗi khi tải dữ liệu báo cáo');
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [projectId, listId]);
+
+  if (loading) {
+    return <Card className="p-6">Đang tải báo cáo...</Card>;
+  }
+
+  if (error) {
+    return <Card className="p-6 text-red-600">{error}</Card>;
+  }
+
   const totalTasks = tasks.length;
-  const completedTasks = tasks.filter((t) => t.status === 'done').length;
+  const completedTasks = tasks.filter((t) => t.status === 'completed').length;
   const inProgressTasks = tasks.filter((t) => t.status === 'in-progress').length;
   const todoTasks = tasks.filter((t) => t.status === 'todo').length;
 
@@ -192,9 +232,9 @@ export default function ProjectReportsSection({ projectScoped }: Props) {
               <h3 className="font-semibold text-gray-900 mb-6">Hiệu suất theo dự án</h3>
               <div className="space-y-6">
                 {projects.map((project) => {
-                  const projectTasks = tasks.filter((t) => t.project === project.name);
+                  const projectTasks = tasks.filter((t) => t.project === project.id);
                   const completedProjectTasks = projectTasks.filter(
-                    (t) => t.status === 'done'
+                    (t) => t.status === 'completed'
                   ).length;
                   const progress =
                     projectTasks.length > 0

@@ -1,7 +1,11 @@
 import { Card } from '@/components/ui/card';
 import { Calendar } from 'lucide-react';
 
-export default function ProjectCalendarPanel() {
+type Props = {
+  scopeLabel?: string;
+};
+
+export default function ProjectCalendarPanel({ scopeLabel }: Props) {
   return (
     <Card className="p-12 text-center">
       <div className="max-w-md mx-auto space-y-4">
@@ -10,8 +14,8 @@ export default function ProjectCalendarPanel() {
         </div>
         <h3 className="text-xl font-semibold text-gray-900">Lịch dự án</h3>
         <p className="text-gray-600">
-          Xem deadline và timeline task theo dạng lịch. Tính năng đang phát triển; sau này lọc
-          theo dự án hiện tại qua API.
+          Xem deadline và timeline task theo dạng lịch. Tính năng đang phát triển; hiện đang
+          {scopeLabel ? ` hiển thị theo ${scopeLabel}` : ' hiển thị theo dự án hiện tại'}.
         </p>
       </div>
     </Card>
