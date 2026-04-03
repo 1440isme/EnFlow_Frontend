@@ -1,4 +1,77 @@
 import { requestJson } from '@/lib/http';
+import type { Task } from '@/types/task';
+import { getProjectsByWorkspace } from '@/lib/project-api';
+import { getWorkspaceSnapshot } from '@/lib/workspace-storage';
+
+const FALLBACK_AVATAR = '/placeholder.svg';
+
+function mapBackendPriorityToFrontend(priority: BackendTaskPriority): Task['priority'] {
+  // Backend dùng `normal`, UI dùng `medium`.
+  if (priority === 'normal') return 'medium';
+  return priority as Task['priority'];
+}
+
+function mapBackendStatusGroupToFrontendStatus(statusGroup: unknown): Task['status'] {
+  const raw = String(statusGroup ?? '').trim();
+  if (!raw) return 'todo';
+
+  const s = raw.toLowerCase();
+  // Completed
+  if (s.includes('completed')) return 'completed';
+
+  // Consider these "in progress" lanes
+  // - backend: IN_PROGRESS / IN PROGRESS, REVIEW, TESTING, DEPLOY
+  if (
+    s.includes('in_progress') ||
+    s.includes('in progress') ||
+    s.includes('in-prog') ||
+    s.includes('review') ||
+    s.includes('testing') ||
+    s.includes('deploy')
+  ) {
+    return 'in-progress';
+  }
+
+  // Todo-ish buckets
+  return 'todo';
+}
+
+function taskResponseToTask(task: TaskResponse, statusById: Map<number, Task['status']>): Task {
+  return {
+    id: String(task.taskId),
+    title: task.title,
+    description: task.description ?? '',
+    status: statusById.get(task.statusId) ?? 'todo',
+    statusId: task.statusId,
+    listId: task.listId,
+    priority: mapBackendPriorityToFrontend(task.priority),
+    assignee: '', // cần endpoint riêng cho assignee; placeholder cho tới khi enrich
+    assigneeAvatar: FALLBACK_AVATAR,
+    project: String(task.projectId), // để match với ProjectsPage
+    dueDate: task.dueDate ?? '',
+    createdAt: task.createdAt,
+    tags: [],
+  };
+}
+
+async function buildStatusByIdForListIds(listIds: number[]): Promise<Map<number, Task['status']>> {
+  const uniq = Array.from(new Set(listIds)).filter((id) => Number.isFinite(id));
+  const statusResponses = await Promise.all(
+    uniq.map(async (listId) => {
+      try {
+        return await getStatusesByList(listId);
+      } catch {
+        return [];
+      }
+    }),
+  );
+
+  const byId = new Map<number, Task['status']>();
+  statusResponses.flat().forEach((s) => {
+    byId.set(s.statusId, mapBackendStatusGroupToFrontendStatus(s.statusGroup));
+  });
+  return byId;
+}
 
 export type BackendTaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type BackendTaskType = 'epic' | 'story' | 'task' | 'bug' | 'subtask';
@@ -94,6 +167,26 @@ export async function getTask(taskId: number): Promise<TaskResponse> {
   return requestJson<TaskResponse>('GET', `/enflow/tasks/${taskId}`, { auth: true });
 }
 
+// Legacy UI helper expects Task shape (not raw TaskResponse).
+export async function getTaskById(taskId: number): Promise<Task> {
+  const task = await getTask(taskId);
+  return {
+    id: String(task.taskId),
+    title: task.title,
+    description: task.description ?? '',
+    status: task.completedAt ? 'done' : task.startDate ? 'in-progress' : 'todo',
+    statusId: task.statusId,
+    listId: task.listId,
+    priority: mapBackendPriorityToFrontend(task.priority),
+    assignee: 'User',
+    assigneeAvatar: FALLBACK_AVATAR,
+    project: task.projectName?.trim() || `Project #${task.projectId}`,
+    dueDate: task.dueDate ?? '',
+    createdAt: task.createdAt,
+    tags: [],
+  };
+}
+
 export async function getTaskTags(taskId: number): Promise<TaskTagResponse[]> {
   return requestJson<TaskTagResponse[]>('GET', `/enflow/task-tags/tasks/${taskId}`, {
     auth: true,
@@ -110,6 +203,46 @@ export async function getStatusesByList(listId: number): Promise<StatusResponse[
   return requestJson<StatusResponse[]>('GET', `/enflow/statuses/lists/${listId}`, {
     auth: true,
   });
+}
+
+export async function getTasksByList(listId: number): Promise<Task[]> {
+  const [tasks, statusById] = await Promise.all([
+    requestJson<TaskResponse[]>('GET', `/enflow/tasks/lists/${listId}`, { auth: true }),
+    buildStatusByIdForListIds([listId]),
+  ]);
+
+  return (tasks ?? []).map((t) => taskResponseToTask(t, statusById));
+}
+
+export async function listTasks(projectId?: number): Promise<Task[]> {
+  if (projectId !== undefined && Number.isFinite(projectId)) {
+    const tasks = await requestJson<TaskResponse[]>('GET', `/enflow/tasks/projects/${projectId}`, {
+      auth: true,
+    });
+    const statusById = await buildStatusByIdForListIds((tasks ?? []).map((t) => t.listId));
+    return (tasks ?? []).map((t) => taskResponseToTask(t, statusById));
+  }
+
+  // Workspace scope: flatten tasks from all projects in current workspace.
+  const wsId = getWorkspaceSnapshot().workspaceId;
+  if (!wsId) return [];
+
+  const projects = await getProjectsByWorkspace(wsId).catch(() => []);
+  const tasksByProject = await Promise.all(
+    projects.map(async (p) => {
+      try {
+        return await requestJson<TaskResponse[]>('GET', `/enflow/tasks/projects/${p.idProject}`, {
+          auth: true,
+        });
+      } catch {
+        return [];
+      }
+    }),
+  );
+
+  const flatTasks = tasksByProject.flat();
+  const statusById = await buildStatusByIdForListIds(flatTasks.map((t) => t.listId));
+  return flatTasks.map((t) => taskResponseToTask(t, statusById));
 }
 
 export async function getTasksAssignedToUser(userId: number): Promise<TaskAssigneeResponse[]> {

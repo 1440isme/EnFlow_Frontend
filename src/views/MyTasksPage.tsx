@@ -35,6 +35,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -44,23 +51,24 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/components/ui/utils';
 import { getProjectsByWorkspace, type ProjectResponse } from '@/lib/project-api';
+import { getListsByProject } from '@/lib/list-api';
+import { getStatusesByList } from '@/lib/status-api';
 import { getCurrentUser } from '@/lib/user-api';
-import { listWorkspaces } from '@/lib/workspace-api';
+import { getStoredUserId } from '@/lib/auth-session';
+import { listWorkspaces, listWorkspacesByOwner } from '@/lib/workspace-api';
 import {
   addTaskAssignee,
   createTask,
-  getProjectLists,
-  getStatusesByList,
   getTask,
   getTaskAssignees,
   getTaskTags,
   getTasksAssignedToUser,
   updateTask,
-  type StatusResponse,
   type TaskAssigneeResponse,
   type TaskResponse,
 } from '@/lib/task-api';
 import { ApiError } from '@/lib/http';
+import type { StatusesResponse } from '@/types/api';
 
 type DashboardTask = Task & {
   taskId: number;
@@ -76,7 +84,7 @@ type DashboardTask = Task & {
   updatedAt: string;
 };
 
-type StatusesByList = Record<number, StatusResponse[]>;
+type StatusesByList = Record<number, StatusesResponse[]>;
 type GroupByOption = 'none' | 'status' | 'priority' | 'project' | 'list';
 type SortByOption = 'dueDate' | 'priority' | 'updatedAt' | 'title';
 type SortDirection = 'asc' | 'desc';
@@ -93,18 +101,20 @@ const mapBackendPriority = (priority: TaskResponse['priority']): Task['priority'
 const mapFrontendPriorityToBackend = (priority: Task['priority']): TaskResponse['priority'] =>
   priority === 'medium' ? 'normal' : priority;
 
-const mapBackendStatusGroup = (statusGroup: StatusResponse['statusGroup']): Task['status'] => {
-  switch (statusGroup) {
-    case 'completed':
-      return 'done';
-    case 'in_progress':
-    case 'review':
-    case 'testing':
-    case 'deploy':
-      return 'in-progress';
-    default:
-      return 'todo';
-  }
+/** Chuẩn hoá statusGroup từ API (enum snake_case hoặc display name kiểu "IN PROGRESS"). */
+function normalizeBackendStatusGroupKey(raw: string): string {
+  return String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/-/g, '_');
+}
+
+const mapBackendStatusGroup = (statusGroup: string): Task['status'] => {
+  const g = normalizeBackendStatusGroupKey(statusGroup);
+  if (g === 'completed') return 'done';
+  if (['in_progress', 'review', 'testing', 'deploy'].includes(g)) return 'in-progress';
+  return 'todo';
 };
 
 const inferTaskStatusFromDates = (
@@ -116,7 +126,15 @@ const inferTaskStatusFromDates = (
   return 'todo';
 };
 
-const sortStatuses = (statuses: StatusResponse[]) =>
+/** Backend StatusesRespone không có `name`; hiển thị từ statusGroup (API thật). */
+const formatStatusLabel = (s: StatusesResponse) => {
+  const rawName = (s as { name?: string | null }).name;
+  if (typeof rawName === 'string' && rawName.trim()) return rawName.trim();
+  const g = String(s.statusGroup ?? '').replace(/_/g, ' ');
+  return g.trim() || `Status #${s.statusId}`;
+};
+
+const sortStatuses = (statuses: StatusesResponse[]) =>
   [...statuses].sort((left, right) => {
     if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
     return (left.position ?? Number.MAX_SAFE_INTEGER) - (right.position ?? Number.MAX_SAFE_INTEGER);
@@ -194,39 +212,41 @@ const statusLabel: Record<Task['status'], string> = {
 };
 
 const statusGroupOrder: Task['status'][] = ['todo', 'in-progress', 'done'];
-const priorityGroupOrder: Task['priority'][] = ['urgent', 'high', 'medium', 'low'];
+const priorityGroupOrder: Task['priority'][] = ['urgent', 'high', 'medium', 'normal', 'low'];
 
 const priorityOrder: Record<Task['priority'], number> = {
   urgent: 0,
   high: 1,
   medium: 2,
+  normal: 2,
   low: 3,
 };
 
 const priorityTone: Record<Task['priority'], string> = {
   low: 'text-slate-500',
   medium: 'text-blue-600',
+  normal: 'text-blue-600',
   high: 'text-orange-600',
   urgent: 'text-rose-600',
 };
 
-const statusBadgeTone = (statusGroup: StatusResponse['statusGroup']) => {
-  if (statusGroup === 'completed') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-  if (statusGroup === 'review') return 'bg-violet-50 text-violet-700 border-violet-200';
-  if (statusGroup === 'in_progress' || statusGroup === 'testing' || statusGroup === 'deploy') {
+const statusBadgeTone = (statusGroup: string) => {
+  const g = normalizeBackendStatusGroupKey(statusGroup);
+  if (g === 'completed') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  if (g === 'review') return 'bg-violet-50 text-violet-700 border-violet-200';
+  if (g === 'in_progress' || g === 'testing' || g === 'deploy') {
     return 'bg-blue-50 text-blue-700 border-blue-200';
   }
-  if (statusGroup === 'backlog' || statusGroup === 'idea') {
+  if (g === 'backlog' || g === 'idea') {
     return 'bg-amber-50 text-amber-700 border-amber-200';
   }
   return 'bg-slate-50 text-slate-700 border-slate-200';
 };
 
 /** Dot + label colors for open status menu rows (Figma-style) */
-const statusMenuItemStyles = (
-  statusGroup: StatusResponse['statusGroup'],
-): { dot: string; label: string } => {
-  switch (statusGroup) {
+const statusMenuItemStyles = (statusGroup: string): { dot: string; label: string } => {
+  const g = normalizeBackendStatusGroupKey(statusGroup);
+  switch (g) {
     case 'completed':
       return { dot: 'bg-emerald-500', label: 'text-emerald-700' };
     case 'review':
@@ -247,6 +267,7 @@ const statusMenuItemStyles = (
 const priorityMenuItemStyles: Record<Task['priority'], { label: string; flag: string }> = {
   low: { label: 'text-slate-600', flag: 'text-slate-500' },
   medium: { label: 'text-blue-600', flag: 'text-blue-600' },
+  normal: { label: 'text-blue-600', flag: 'text-blue-600' },
   high: { label: 'text-orange-600', flag: 'text-orange-600' },
   urgent: { label: 'text-rose-600', flag: 'text-rose-600' },
 };
@@ -333,6 +354,11 @@ export default function MyTasksPage() {
   const [createProjectsCatalog, setCreateProjectsCatalog] = useState<ProjectResponse[]>([]);
   const [createLoading, setCreateLoading] = useState(false);
   const [createListsLoading, setCreateListsLoading] = useState(false);
+  const [createStatusesLoading, setCreateStatusesLoading] = useState(false);
+  const [createCatalogLoading, setCreateCatalogLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  /** Status cho form Create (chỉ từ API theo list đã chọn), tách khỏi map status của bảng task. */
+  const [createFormStatuses, setCreateFormStatuses] = useState<StatusesResponse[]>([]);
 
   const loadTasks = useCallback(async () => {
     setIsLoading(true);
@@ -536,7 +562,7 @@ export default function MyTasksPage() {
     if (groupBy === 'status') {
       const sections = new Map<string, DashboardTask[]>();
       filteredTasks.forEach((task) => {
-        const key = task.status;
+        const key = String(task.status);
         if (!sections.has(key)) sections.set(key, []);
         sections.get(key)?.push(task);
       });
@@ -747,34 +773,57 @@ export default function MyTasksPage() {
     }
   };
 
+  /** Chỉ project từ API (catalog), không merge tên từ task row. */
   const projectsForCreate = useMemo(() => {
-    const fromTasks = new Map<number, string>();
-    assignedTasks.forEach((t) => fromTasks.set(t.projectId, t.project));
-    createProjectsCatalog.forEach((p) => {
-      if (!fromTasks.has(p.idProject)) fromTasks.set(p.idProject, p.name);
-    });
-    return Array.from(fromTasks.entries()).sort((a, b) => a[1].localeCompare(b[1]));
-  }, [assignedTasks, createProjectsCatalog]);
+    return [...createProjectsCatalog]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((p) => [p.idProject, p.name] as [number, string]);
+  }, [createProjectsCatalog]);
 
   useEffect(() => {
     if (!createOpen) return;
     let cancelled = false;
+    setCreateError(null);
+    setCreateCatalogLoading(true);
     (async () => {
       try {
-        const workspaces = await listWorkspaces();
-        if (cancelled || workspaces.length === 0) return;
-        const all: ProjectResponse[] = [];
-        for (const ws of workspaces) {
-          const projects = await getProjectsByWorkspace(ws.workspaceId);
-          all.push(...projects);
+        let all: ProjectResponse[] = [];
+
+        const workspaces = await listWorkspaces().catch(() => [] as Awaited<ReturnType<typeof listWorkspaces>>);
+        if (workspaces.length > 0) {
+          for (const ws of workspaces) {
+            const projects = await getProjectsByWorkspace(ws.workspaceId).catch(() => []);
+            all.push(...projects);
+          }
         }
-        if (!cancelled) setCreateProjectsCatalog(all);
+
+        if (all.length === 0) {
+          const userId = getStoredUserId();
+          if (userId) {
+            const owned = await listWorkspacesByOwner(userId).catch(() => []);
+            for (const ws of owned) {
+              const projects = await getProjectsByWorkspace(ws.workspaceId).catch(() => []);
+              all.push(...projects);
+            }
+          }
+        }
+
+        const seen = new Set<number>();
+        const deduped = all.filter((p) => {
+          if (seen.has(p.idProject)) return false;
+          seen.add(p.idProject);
+          return true;
+        });
+        if (!cancelled) setCreateProjectsCatalog(deduped);
       } catch {
-        /* catalog optional if tasks already imply projects */
+        if (!cancelled) setCreateProjectsCatalog([]);
+      } finally {
+        setCreateCatalogLoading(false);
       }
     })();
     return () => {
       cancelled = true;
+      setCreateCatalogLoading(false);
     };
   }, [createOpen]);
 
@@ -783,11 +832,12 @@ export default function MyTasksPage() {
       setCreateLists([]);
       setCreateListId('');
       setCreateStatusId('');
+      setCreateFormStatuses([]);
       return;
     }
     let cancelled = false;
     setCreateListsLoading(true);
-    void getProjectLists(createProjectId)
+    void getListsByProject(createProjectId)
       .then((lists) => {
         if (cancelled) return;
         const mapped = lists.map((l) => ({ listProjectId: l.listProjectId, name: l.name }));
@@ -808,15 +858,26 @@ export default function MyTasksPage() {
   useEffect(() => {
     if (createListId === '' || typeof createListId !== 'number') {
       setCreateStatusId('');
+      setCreateStatusesLoading(false);
+      setCreateFormStatuses([]);
       return;
     }
     let cancelled = false;
-    void getStatusesByList(createListId).then((st) => {
-      if (cancelled) return;
-      setStatusesByList((prev) => ({ ...prev, [createListId]: st }));
-      const def = st.find((s) => s.isDefault) ?? st[0];
-      if (def) setCreateStatusId(def.statusId);
-    });
+    setCreateStatusesLoading(true);
+    void getStatusesByList(createListId)
+      .then((st) => {
+        if (cancelled) return;
+        const sorted = sortStatuses(st);
+        setCreateFormStatuses(sorted);
+        const def =
+          sorted.find((s) => normalizeBackendStatusGroupKey(s.statusGroup) === 'to_do') ??
+          sorted.find((s) => s.isDefault) ??
+          sorted[0];
+        setCreateStatusId(def ? def.statusId : '');
+      })
+      .finally(() => {
+        if (!cancelled) setCreateStatusesLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -848,7 +909,17 @@ export default function MyTasksPage() {
     return 'Custom';
   }, [dateRangePreset]);
 
+  const handleCreateDialogOpenChange = (open: boolean) => {
+    setCreateOpen(open);
+    if (!open) {
+      setCreateError(null);
+      setCreateFormStatuses([]);
+    }
+  };
+
   const handleCreateTaskSubmit = async () => {
+    if (createLoading) return;
+    setCreateError(null);
     if (
       !createTitle.trim() ||
       createProjectId === '' ||
@@ -858,11 +929,14 @@ export default function MyTasksPage() {
       typeof createListId !== 'number' ||
       typeof createStatusId !== 'number'
     ) {
-      setErrorMessage('Please fill title, project, list, and status.');
+      setCreateError('Please fill title, project, list, and status.');
+      return;
+    }
+    if (createCatalogLoading || createListsLoading || createStatusesLoading) {
+      setCreateError('Please wait for lists and statuses to finish loading.');
       return;
     }
     setCreateLoading(true);
-    setErrorMessage(null);
     try {
       const user = await getCurrentUser();
       const created = await createTask(createProjectId, createListId, createStatusId, {
@@ -882,14 +956,30 @@ export default function MyTasksPage() {
       setCreateStatusId('');
       setCreatePriority('medium');
       setCreateDue('');
+      setCreateError(null);
+      setCreateFormStatuses([]);
       await loadTasks();
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Could not create task.';
-      setErrorMessage(message);
+      setCreateError(message);
     } finally {
       setCreateLoading(false);
     }
   };
+
+  const createSubmitDisabled =
+    createLoading ||
+    createCatalogLoading ||
+    createListsLoading ||
+    createStatusesLoading ||
+    projectsForCreate.length === 0 ||
+    !createTitle.trim() ||
+    createProjectId === '' ||
+    createListId === '' ||
+    createStatusId === '' ||
+    typeof createProjectId !== 'number' ||
+    typeof createListId !== 'number' ||
+    typeof createStatusId !== 'number';
 
   const toggleInNumberList = (list: number[], id: number, setter: (next: number[]) => void) => {
     setter(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
@@ -1352,7 +1442,7 @@ export default function MyTasksPage() {
                                       )}
                                     >
                                       <span className="min-w-0 max-w-[9.5rem] truncate whitespace-nowrap">
-                                        {currentStatus?.name ?? '—'}
+                                        {currentStatus ? formatStatusLabel(currentStatus) : '—'}
                                       </span>
                                       <ChevronDown className="size-3 shrink-0 opacity-70" />
                                     </button>
@@ -1377,7 +1467,7 @@ export default function MyTasksPage() {
                                               aria-hidden
                                             />
                                             <span className={cn('truncate text-sm font-medium', menuStyles.label)}>
-                                              {status.name}
+                                              {formatStatusLabel(status)}
                                             </span>
                                           </span>
                                           {selected ? (
@@ -1594,13 +1684,18 @@ export default function MyTasksPage() {
         ) : null}
       </div>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
+      <Dialog open={createOpen} onOpenChange={handleCreateDialogOpenChange}>
+        <DialogContent className="max-h-[90vh] overflow-visible sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Create task</DialogTitle>
             <DialogDescription>Add a task and assign it to yourself so it appears in My Tasks.</DialogDescription>
           </DialogHeader>
-          <div className="grid gap-3 py-2">
+          {createError ? (
+            <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {createError}
+            </div>
+          ) : null}
+          <div className="grid max-h-[min(70vh,28rem)] gap-3 overflow-y-auto py-2">
             <div className="grid gap-1.5">
               <Label htmlFor="create-title">Title</Label>
               <Input
@@ -1613,79 +1708,86 @@ export default function MyTasksPage() {
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="create-project">Project</Label>
-              <select
-                id="create-project"
-                value={createProjectId === '' ? '' : String(createProjectId)}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setCreateProjectId(v === '' ? '' : Number(v));
-                }}
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm"
+              <Select
+                value={createProjectId === '' ? undefined : String(createProjectId)}
+                onValueChange={(v) => setCreateProjectId(v ? Number(v) : '')}
+                disabled={createCatalogLoading || projectsForCreate.length === 0}
               >
-                <option value="">Select project</option>
-                {projectsForCreate.map(([pid, name]) => (
-                  <option key={pid} value={String(pid)}>
-                    {name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="create-project" className="w-full border-slate-200 bg-white">
+                  <SelectValue
+                    placeholder={createCatalogLoading ? 'Loading projects…' : 'Select project'}
+                  />
+                </SelectTrigger>
+                <SelectContent className="z-[110] max-h-[min(280px,70vh)]">
+                  {projectsForCreate.map(([pid, name]) => (
+                    <SelectItem key={pid} value={String(pid)}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {createCatalogLoading ? (
+                <p className="text-xs text-slate-500">Loading projects from API…</p>
+              ) : projectsForCreate.length === 0 ? (
+                <p className="text-xs text-amber-800">
+                  No projects returned from API. Create a project first or check your workspaces.
+                </p>
+              ) : null}
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="create-list">List</Label>
-              <select
-                id="create-list"
-                value={createListId === '' ? '' : String(createListId)}
+              <Select
+                value={createListId === '' ? undefined : String(createListId)}
+                onValueChange={(v) => setCreateListId(v ? Number(v) : '')}
                 disabled={createProjectId === '' || createListsLoading}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setCreateListId(v === '' ? '' : Number(v));
-                }}
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm"
               >
-                <option value="">{createListsLoading ? 'Loading…' : 'Select list'}</option>
-                {createLists.map((l) => (
-                  <option key={l.listProjectId} value={String(l.listProjectId)}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="create-list" className="w-full border-slate-200 bg-white">
+                  <SelectValue placeholder={createListsLoading ? 'Loading…' : 'Select list'} />
+                </SelectTrigger>
+                <SelectContent className="z-[110] max-h-[min(280px,70vh)]">
+                  {createLists.map((l) => (
+                    <SelectItem key={l.listProjectId} value={String(l.listProjectId)}>
+                      {l.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="create-status">Status</Label>
-              <select
-                id="create-status"
-                value={createStatusId === '' ? '' : String(createStatusId)}
-                disabled={createListId === ''}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setCreateStatusId(v === '' ? '' : Number(v));
-                }}
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm"
+              <Select
+                value={createStatusId === '' ? undefined : String(createStatusId)}
+                onValueChange={(v) => setCreateStatusId(v ? Number(v) : '')}
+                disabled={createListId === '' || createStatusesLoading}
               >
-                <option value="">Select status</option>
-                {(createListId !== '' && typeof createListId === 'number'
-                  ? statusesByList[createListId] ?? []
-                  : []
-                ).map((s) => (
-                  <option key={s.statusId} value={String(s.statusId)}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="create-status" className="w-full border-slate-200 bg-white">
+                  <SelectValue placeholder={createStatusesLoading ? 'Loading…' : 'Select status'} />
+                </SelectTrigger>
+                <SelectContent className="z-[110] max-h-[min(280px,70vh)]">
+                  {createFormStatuses.map((s) => (
+                    <SelectItem key={s.statusId} value={String(s.statusId)}>
+                      {formatStatusLabel(s)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="create-priority">Priority</Label>
-              <select
-                id="create-priority"
+              <Select
                 value={createPriority}
-                onChange={(e) => setCreatePriority(e.target.value as Task['priority'])}
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm capitalize"
+                onValueChange={(v) => setCreatePriority(v as Task['priority'])}
               >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
+                <SelectTrigger id="create-priority" className="w-full border-slate-200 bg-white capitalize">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="z-[110]">
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium (normal)</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="urgent">Urgent</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="create-due">Due date</Label>
@@ -1710,13 +1812,18 @@ export default function MyTasksPage() {
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={createLoading}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleCreateDialogOpenChange(false)}
+              disabled={createLoading}
+            >
               Cancel
             </Button>
             <Button
               type="button"
               className="bg-[#0057b8] hover:bg-[#00489a]"
-              disabled={createLoading || projectsForCreate.length === 0}
+              disabled={createSubmitDisabled}
               onClick={() => void handleCreateTaskSubmit()}
             >
               {createLoading ? 'Creating…' : 'Create'}
