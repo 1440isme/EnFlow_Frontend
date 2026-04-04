@@ -13,7 +13,9 @@ import {
   listTaskResponsesByProject,
   removeTaskAssignee,
   updateTask,
+  type TaskTagResponse,
 } from '@/lib/task-api';
+import { countDirectSubtasksByParentId } from '@/lib/task-subtask-utils';
 import { assigneeUserIdsFromRows, taskAssigneeRowsToDisplay } from '@/lib/task-assignee-utils';
 import { getListsByProject } from '@/lib/list-api';
 import { getProjectById } from '@/lib/project-api';
@@ -149,6 +151,8 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
   const [error, setError] = useState<string | null>(null);
   const [createListOpen, setCreateListOpen] = useState(false);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
+  const [subtaskParentForDialog, setSubtaskParentForDialog] = useState<DashboardTask | null>(null);
+  const [projectWorkspaceId, setProjectWorkspaceId] = useState<number | null>(null);
   const [collapsedLists, setCollapsedLists] = useState<Record<number, boolean>>({});
   /** Key `listProjectId-statusId` — true = nhóm status đang thu gọn (ẩn bảng task). */
   const [collapsedStatusGroups, setCollapsedStatusGroups] = useState<Record<string, boolean>>({});
@@ -180,6 +184,11 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
 
   /** Cache user profiles cho assignee display + member picker (đồng bộ sau add/remove). */
   const userCacheRef = useRef<Map<number, UserResponse | null>>(new Map());
+
+  /** List / status group user đã bấm collapse — không ghi đè bởi auto cho đến khi đổi filter/context. */
+  const manualListCollapseRef = useRef<Set<number>>(new Set());
+  const manualStatusCollapseRef = useRef<Set<string>>(new Set());
+  const prevFilterSignatureRef = useRef<string>('');
 
   const isProjectScope = !listId;
 
@@ -232,8 +241,14 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
       });
       setStatusesByListState(byList);
 
+      const allRaw = rawTasks || [];
+      const subCountByParent = countDirectSubtasksByParentId(
+        allRaw.map((t) => ({ taskId: t.taskId, parentTaskId: t.parentTaskId })),
+      );
+      const rootsOnlyRaw = allRaw.filter((t) => t.parentTaskId == null);
+
       const bundles = await Promise.all(
-        (rawTasks || []).map(async (t) => {
+        rootsOnlyRaw.map(async (t) => {
           const [tags, assignees] = await Promise.all([
             getTaskTags(t.taskId).catch(() => []),
             getTaskAssignees(t.taskId).catch(() => []),
@@ -243,14 +258,14 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
             assignees,
             me.userId,
             me.fullName?.trim() || me.username || 'User',
-            tags.map((x) => x.tagName),
+            tags,
           );
           return { row, assignees };
         }),
       );
 
       const uniqueAssigneeUserIds = [...new Set(bundles.flatMap((b) => b.assignees.map((a) => a.userId)))];
-      const reporterUserIds = [...new Set((rawTasks || []).map((t) => t.reporterId))];
+      const reporterUserIds = [...new Set(rootsOnlyRaw.map((t) => t.reporterId))];
       const candidateUserIdsSet = new Set<number>([
         me.userId,
         ...membersRaw.map((m) => m.userId),
@@ -282,7 +297,11 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
 
       const mappedTasks: DashboardTask[] = bundles.map((b) => {
         const assigneesDisplay = taskAssigneeRowsToDisplay(b.assignees, userById);
-        return { ...b.row, assigneesDisplay };
+        return {
+          ...b.row,
+          assigneesDisplay,
+          directSubtaskCount: subCountByParent.get(b.row.taskId) ?? 0,
+        };
       });
 
       const assigneeIdsMap: Record<string, number[]> = {};
@@ -307,12 +326,14 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
       const tagSet = new Set<string>();
       mappedTasks.forEach((t) => t.tags.forEach((tag) => tagSet.add(tag)));
       setTagOptions(Array.from(tagSet).sort((a, b) => a.localeCompare(b)));
+      setProjectWorkspaceId(project.workspaceId);
     } catch (e: unknown) {
       console.error(e);
       setError(e instanceof ApiError ? e.message : 'Could not load tasks.');
       setTasks([]);
       setAssigneeUserIdsByTask({});
       setWorkspaceMembersForPicker([]);
+      setProjectWorkspaceId(null);
    } finally {
       setLoading(false);
     }
@@ -321,6 +342,29 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  const handleTaskTagsChange = useCallback((taskId: string, rows: TaskTagResponse[]) => {
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? {
+              ...t,
+              tags: rows.map((r) => r.tagName),
+              tagEntries: rows.map((r) => ({
+                tagId: r.tagId,
+                tagName: r.tagName,
+                tagColor: r.tagColor || '#94a3b8',
+              })),
+            }
+          : t,
+      ),
+    );
+    setTagOptions((prev) => {
+      const s = new Set(prev);
+      rows.forEach((r) => s.add(r.tagName));
+      return Array.from(s).sort((a, b) => a.localeCompare(b));
+    });
+  }, []);
 
   const refreshTaskAssignees = useCallback(async (task: DashboardTask) => {
     const rows = await getTaskAssignees(task.taskId);
@@ -515,6 +559,100 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
     duePreset,
     dueRange,
   ]);
+
+  const displayedLists = useMemo(
+    () => (listId ? lists.filter((l) => l.listProjectId === listId) : lists),
+    [listId, lists],
+  );
+
+  const visibleLists = useMemo(
+    () =>
+      filterListIds.length > 0
+        ? displayedLists.filter((l) => filterListIds.includes(l.listProjectId))
+        : displayedLists,
+    [displayedLists, filterListIds],
+  );
+
+  const filterSignature = useMemo(
+    () =>
+      JSON.stringify({
+        projectNum,
+        listId: listId ?? null,
+        filterStatusIds,
+        filterListIds,
+        filterTagNames,
+        filterPriorities,
+        filterAssigneeIds,
+        filterReporterIds,
+        duePreset,
+        customDueFrom,
+        customDueTo,
+        assignedToMeOnly,
+      }),
+    [
+      projectNum,
+      listId,
+      filterStatusIds,
+      filterListIds,
+      filterTagNames,
+      filterPriorities,
+      filterAssigneeIds,
+      filterReporterIds,
+      duePreset,
+      customDueFrom,
+      customDueTo,
+      assignedToMeOnly,
+    ],
+  );
+
+  /** Mặc định: có task (sau filter) => expand; không có => collapse. User chỉnh tay được lưu tới khi đổi filter. */
+  useEffect(() => {
+    if (prevFilterSignatureRef.current !== filterSignature) {
+      prevFilterSignatureRef.current = filterSignature;
+      manualListCollapseRef.current.clear();
+      manualStatusCollapseRef.current.clear();
+    }
+
+    setCollapsedLists((prev) => {
+      const next = { ...prev };
+      for (const list of visibleLists) {
+        const listTaskCount = filteredTasks.filter((t) => t.listId === list.listProjectId).length;
+        const autoCollapsed = listTaskCount === 0;
+        if (!manualListCollapseRef.current.has(list.listProjectId)) {
+          next[list.listProjectId] = autoCollapsed;
+        }
+      }
+      return next;
+    });
+
+    setCollapsedStatusGroups((prev) => {
+      const next = { ...prev };
+      for (const list of visibleLists) {
+        const listTasks = filteredTasks.filter((t) => t.listId === list.listProjectId);
+        const listStatuses = statuses
+          .filter((s) => s.listId === list.listProjectId)
+          .sort((a, b) => a.position - b.position);
+        const tasksByStatusId = listTasks.reduce(
+          (acc, task) => {
+            const key = String(taskStatusIds[task.id] ?? task.statusId);
+            if (!acc[key]) acc[key] = [];
+            acc[key].push(task);
+            return acc;
+          },
+          {} as Record<string, DashboardTask[]>,
+        );
+        for (const status of listStatuses) {
+          const k = `${list.listProjectId}-${status.statusId}`;
+          const groupTasks = tasksByStatusId[String(status.statusId)] || [];
+          const autoCollapsed = groupTasks.length === 0;
+          if (!manualStatusCollapseRef.current.has(k)) {
+            next[k] = autoCollapsed;
+          }
+        }
+      }
+      return next;
+    });
+  }, [filteredTasks, visibleLists, statuses, taskStatusIds, filterSignature]);
 
   const selectedIdsSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds]);
 
@@ -728,14 +866,22 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
   };
 
   const handleToggleList = (listProjectId: number) => {
-    setCollapsedLists((c) => ({ ...c, [listProjectId]: !c[listProjectId] }));
+    manualListCollapseRef.current.add(listProjectId);
+    setCollapsedLists((c) => {
+      const cur = Boolean(c[listProjectId]);
+      return { ...c, [listProjectId]: !cur };
+    });
   };
 
   const statusGroupKey = (listProjectId: number, statusId: number) => `${listProjectId}-${statusId}`;
 
   const toggleStatusGroup = (listProjectId: number, statusId: number) => {
     const k = statusGroupKey(listProjectId, statusId);
-    setCollapsedStatusGroups((prev) => ({ ...prev, [k]: !prev[k] }));
+    manualStatusCollapseRef.current.add(k);
+    setCollapsedStatusGroups((prev) => {
+      const cur = Boolean(prev[k]);
+      return { ...prev, [k]: !cur };
+    });
   };
 
   const handleListCreated = async () => {
@@ -761,9 +907,6 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
   const toggleNumber = (list: number[], id: number, set: (v: number[]) => void) => {
     set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   };
-
-  const displayedLists = listId ? lists.filter((l) => l.listProjectId === listId) : lists;
-  const visibleLists = filterListIds.length > 0 ? displayedLists.filter((l) => filterListIds.includes(l.listProjectId)) : displayedLists;
 
   if (loading) {
     return <div className="p-8 text-center text-slate-500">Loading…</div>;
@@ -796,9 +939,13 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
       />
       <CreateTaskDialog
         open={createTaskOpen}
-        onOpenChange={setCreateTaskOpen}
+        onOpenChange={(open) => {
+          setCreateTaskOpen(open);
+          if (!open) setSubtaskParentForDialog(null);
+        }}
         lockedProjectId={projectNum}
-        defaultListId={listId ?? undefined}
+        defaultListId={subtaskParentForDialog?.listId ?? listId ?? undefined}
+        parentTaskId={subtaskParentForDialog?.taskId ?? undefined}
         onCreated={() => void loadData()}
       />
 
@@ -1028,7 +1175,14 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
             </Avatar>
           </Button>
 
-          <Button type="button" className="gap-2 bg-[#0057b8] hover:bg-[#00489a]" onClick={() => setCreateTaskOpen(true)}>
+          <Button
+            type="button"
+            className="gap-2 bg-[#0057b8] hover:bg-[#00489a]"
+            onClick={() => {
+              setSubtaskParentForDialog(null);
+              setCreateTaskOpen(true);
+            }}
+          >
             <Plus className="w-4 h-4" />
             Add Task
           </Button>
@@ -1233,6 +1387,12 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
                                       assigneeSaving={Boolean(assigneeSavingByTask[task.id])}
                                       onAddTaskAssignee={handleAddTaskAssignee}
                                       onRemoveTaskAssignee={handleRemoveTaskAssignee}
+                                      workspaceId={projectWorkspaceId}
+                                      onAddSubtask={(t) => {
+                                        setSubtaskParentForDialog(t);
+                                        setCreateTaskOpen(true);
+                                      }}
+                                      onTaskTagsChange={handleTaskTagsChange}
                                     />
                                   ))}
                                 </div>

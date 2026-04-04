@@ -356,7 +356,7 @@ export default function KanbanBoardTab({ listId }: Props) {
       const bundles = await Promise.all(
         (rawTasks || []).map(async (t: TaskResponse) => {
           const [tags, assignees] = await Promise.all([getTaskTags(t.taskId).catch(() => []), getTaskAssignees(t.taskId).catch(() => [])]);
-          const rowBase = toDashboardTask(t, assignees, me.userId, me.fullName?.trim() || me.username || 'User', tags.map((x) => x.tagName));
+          const rowBase = toDashboardTask(t, assignees, me.userId, me.fullName?.trim() || me.username || 'User', tags);
 
           const listStatuses = byList[t.listId] ?? [];
           const matched = listStatuses.find((s) => s.statusId === t.statusId);

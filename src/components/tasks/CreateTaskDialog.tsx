@@ -41,8 +41,12 @@ export type CreateTaskDialogProps = {
   onOpenChange: (open: boolean) => void;
   /** Khi có — chỉ tạo task trong project này (Project Dashboard). */
   lockedProjectId?: number;
-  /** Prefill list khi mở (scoped list trong dashboard). */
+  /**
+   * Prefill list (dashboard tab) hoặc — khi có `parentTaskId` — **list cố định của task cha** (bắt buộc).
+   */
   defaultListId?: number | null;
+  /** Task cha — backend dùng parentTaskId + taskType `subtask`. */
+  parentTaskId?: number | null;
   onCreated?: () => void | Promise<void>;
 };
 
@@ -51,8 +55,16 @@ export function CreateTaskDialog({
   onOpenChange,
   lockedProjectId,
   defaultListId,
+  parentTaskId = null,
   onCreated,
 }: CreateTaskDialogProps) {
+  /** Subtask: project + list bắt buộc khớp task cha; không cho đổi trên UI. */
+  const isSubtaskFlow =
+    parentTaskId != null &&
+    lockedProjectId != null &&
+    defaultListId != null &&
+    Number.isFinite(Number(defaultListId));
+
   const [createTitle, setCreateTitle] = useState('');
   const [createDescription, setCreateDescription] = useState('');
   const [createProjectId, setCreateProjectId] = useState<number | ''>('');
@@ -70,11 +82,27 @@ export function CreateTaskDialog({
   const [createFormStatuses, setCreateFormStatuses] = useState<StatusesResponse[]>([]);
   const [lockedProjectLabel, setLockedProjectLabel] = useState<string>('');
 
+  const lockedListLabel = useMemo(() => {
+    const lid = defaultListId;
+    if (lid == null) return '';
+    const row = createLists.find((l) => l.listProjectId === lid);
+    return row?.name ?? `List #${lid}`;
+  }, [createLists, defaultListId]);
+
   const projectsForCreate = useMemo(() => {
     return [...createProjectsCatalog]
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((p) => [p.idProject, p.name] as [number, string]);
   }, [createProjectsCatalog]);
+
+  useEffect(() => {
+    if (open && parentTaskId != null) {
+      setCreateTitle('');
+      setCreateDescription('');
+      setCreateDue('');
+      setCreatePriority('medium');
+    }
+  }, [open, parentTaskId]);
 
   useEffect(() => {
     if (!open || lockedProjectId == null) {
@@ -156,6 +184,14 @@ export function CreateTaskDialog({
         const mapped = lists.map((l) => ({ listProjectId: l.listProjectId, name: l.name }));
         setCreateLists(mapped);
         setCreateListId((prev) => {
+          if (
+            parentTaskId != null &&
+            lockedProjectId != null &&
+            defaultListId != null &&
+            mapped.some((m) => m.listProjectId === defaultListId)
+          ) {
+            return defaultListId;
+          }
           if (defaultListId != null && mapped.some((m) => m.listProjectId === defaultListId)) {
             return defaultListId;
           }
@@ -169,7 +205,7 @@ export function CreateTaskDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, createProjectId, defaultListId]);
+  }, [open, createProjectId, defaultListId, parentTaskId, lockedProjectId]);
 
   useEffect(() => {
     if (!open) return;
@@ -200,6 +236,12 @@ export function CreateTaskDialog({
     };
   }, [open, createListId]);
 
+  useEffect(() => {
+    if (!open || !isSubtaskFlow) return;
+    if (lockedProjectId != null) setCreateProjectId(lockedProjectId);
+    if (defaultListId != null) setCreateListId(defaultListId);
+  }, [open, isSubtaskFlow, lockedProjectId, defaultListId]);
+
   const handleOpenChange = (next: boolean) => {
     onOpenChange(next);
     if (!next) {
@@ -220,13 +262,22 @@ export function CreateTaskDialog({
   const handleSubmit = async () => {
     if (createLoading) return;
     setCreateError(null);
+
+    if (parentTaskId != null && !isSubtaskFlow) {
+      setCreateError('Cannot create subtask: parent project or list context is missing.');
+      return;
+    }
+
+    const submitProjectId = isSubtaskFlow ? lockedProjectId! : createProjectId;
+    const submitListId = isSubtaskFlow ? defaultListId! : createListId;
+
     if (
       !createTitle.trim() ||
-      createProjectId === '' ||
-      createListId === '' ||
+      submitProjectId === '' ||
+      submitListId === '' ||
       createStatusId === '' ||
-      typeof createProjectId !== 'number' ||
-      typeof createListId !== 'number' ||
+      typeof submitProjectId !== 'number' ||
+      typeof submitListId !== 'number' ||
       typeof createStatusId !== 'number'
     ) {
       setCreateError('Please fill title, project, list, and status.');
@@ -239,10 +290,11 @@ export function CreateTaskDialog({
     setCreateLoading(true);
     try {
       const user = await getCurrentUser();
-      const created = await createTask(createProjectId, createListId, createStatusId, {
+      const created = await createTask(submitProjectId, submitListId, createStatusId, {
         title: createTitle.trim(),
         description: createDescription.trim() || null,
-        taskType: 'task',
+        taskType: parentTaskId != null ? 'subtask' : 'task',
+        parentTaskId: parentTaskId ?? null,
         priority: mapFrontendPriorityToBackend(createPriority),
         reporterId: user.userId,
         dueDate: createDue ? `${createDue}T23:59:59` : null,
@@ -269,32 +321,43 @@ export function CreateTaskDialog({
     }
   };
 
+  const submitProjectIdForDisabled = isSubtaskFlow ? lockedProjectId : createProjectId;
+  const submitListIdForDisabled = isSubtaskFlow ? defaultListId : createListId;
+
   const createSubmitDisabled =
     createLoading ||
     createCatalogLoading ||
     createListsLoading ||
     createStatusesLoading ||
-    (lockedProjectId == null && projectsForCreate.length === 0) ||
+    (parentTaskId != null && !isSubtaskFlow) ||
+    (lockedProjectId == null && !isSubtaskFlow && projectsForCreate.length === 0) ||
     !createTitle.trim() ||
-    createProjectId === '' ||
-    createListId === '' ||
+    submitProjectIdForDisabled === '' ||
+    submitListIdForDisabled === '' ||
     createStatusId === '';
 
   const descriptionText =
-    lockedProjectId != null
-      ? 'Create a task in this project. It will be assigned to you by default.'
-      : 'Add a task and assign it to yourself so it appears in My Tasks.';
+    parentTaskId != null
+      ? 'New subtask will be created under the parent task and assigned to you by default.'
+      : lockedProjectId != null
+        ? 'Create a task in this project. It will be assigned to you by default.'
+        : 'Add a task and assign it to yourself so it appears in My Tasks.';
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="flex max-h-[min(92vh,44rem)] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
         <div className="shrink-0 space-y-3 border-b border-slate-100 px-6 pt-6 pb-4">
           <DialogHeader>
-            <DialogTitle>Create task</DialogTitle>
+            <DialogTitle>{parentTaskId != null ? 'Create subtask' : 'Create task'}</DialogTitle>
             <DialogDescription>{descriptionText}</DialogDescription>
           </DialogHeader>
           {createError ? (
             <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{createError}</div>
+          ) : null}
+          {parentTaskId != null && !isSubtaskFlow ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Subtask requires the parent task&apos;s project and list. Close and use &quot;Add subtask&quot; from a task row.
+            </div>
           ) : null}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-4">
@@ -338,31 +401,46 @@ export function CreateTaskDialog({
               </div>
             ) : (
               <div className="grid gap-1.5">
-                <Label>Project</Label>
-                <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+                <Label>{isSubtaskFlow ? 'Project (parent task)' : 'Project'}</Label>
+                <p
+                  className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+                  aria-readonly="true"
+                >
                   {lockedProjectLabel || `Project #${lockedProjectId}`}
                 </p>
               </div>
             )}
-            <div className="grid gap-1.5">
-              <Label htmlFor="shared-create-list">List</Label>
-              <Select
-                value={createListId === '' ? undefined : String(createListId)}
-                onValueChange={(v) => setCreateListId(v ? Number(v) : '')}
-                disabled={createProjectId === '' || createListsLoading}
-              >
-                <SelectTrigger id="shared-create-list" className="w-full border-slate-200 bg-white">
-                  <SelectValue placeholder={createListsLoading ? 'Loading…' : 'Select list'} />
-                </SelectTrigger>
-                <SelectContent className="z-[110] max-h-[min(280px,70vh)]">
-                  {createLists.map((l) => (
-                    <SelectItem key={l.listProjectId} value={String(l.listProjectId)}>
-                      {l.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {isSubtaskFlow ? (
+              <div className="grid gap-1.5">
+                <Label>List (parent task)</Label>
+                <p
+                  className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+                  aria-readonly="true"
+                >
+                  {createListsLoading ? 'Loading list…' : lockedListLabel}
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-1.5">
+                <Label htmlFor="shared-create-list">List</Label>
+                <Select
+                  value={createListId === '' ? undefined : String(createListId)}
+                  onValueChange={(v) => setCreateListId(v ? Number(v) : '')}
+                  disabled={createProjectId === '' || createListsLoading}
+                >
+                  <SelectTrigger id="shared-create-list" className="w-full border-slate-200 bg-white">
+                    <SelectValue placeholder={createListsLoading ? 'Loading…' : 'Select list'} />
+                  </SelectTrigger>
+                  <SelectContent className="z-[110] max-h-[min(280px,70vh)]">
+                    {createLists.map((l) => (
+                      <SelectItem key={l.listProjectId} value={String(l.listProjectId)}>
+                        {l.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="grid gap-1.5">
               <Label htmlFor="shared-create-status">Status</Label>
               <Select

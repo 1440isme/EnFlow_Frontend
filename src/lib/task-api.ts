@@ -193,6 +193,19 @@ export async function getTaskTags(taskId: number): Promise<TaskTagResponse[]> {
   });
 }
 
+export async function addTagToTask(taskId: number, tagId: number): Promise<TaskTagResponse> {
+  return requestJson<TaskTagResponse>('POST', `/enflow/task-tags/tasks/${taskId}`, {
+    body: { tagId },
+    auth: true,
+  });
+}
+
+export async function removeTagFromTask(taskId: number, tagId: number): Promise<void> {
+  await requestJson<void>('DELETE', `/enflow/task-tags/tasks/${taskId}/tags/${tagId}`, {
+    auth: true,
+  });
+}
+
 export async function getTaskAssignees(taskId: number): Promise<TaskAssigneeResponse[]> {
   return requestJson<TaskAssigneeResponse[]>('GET', `/enflow/task-assignees/tasks/${taskId}`, {
     auth: true,

@@ -1,10 +1,10 @@
 'use client';
 
-import { Calendar, ChevronDown, Check, Clock3, Flag, Folder, List } from 'lucide-react';
+import { useState } from 'react';
+import { Calendar, ChevronDown, Check, Clock3, Flag, Folder, GitBranch, List, ListTree, X } from 'lucide-react';
 import type { Task } from '@/types/task';
-import type { DashboardTask } from '@/types/dashboard-task';
+import type { DashboardTask, TaskTagEntry } from '@/types/dashboard-task';
 import type { StatusesResponse } from '@/types/api';
-import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +22,10 @@ import {
 import { formatTaskPriorityLabel } from '@/lib/task-priority-ui';
 import { AssigneeAvatarStack } from './AssigneeAvatarStack';
 import { TaskAssigneeCell, type WorkspaceMemberOption } from './TaskAssigneeCell';
+import { TaskRowTagPopover } from './TaskRowTagPopover';
+import { Button } from '@/components/ui/button';
+import { getTaskTags, removeTagFromTask, type TaskTagResponse } from '@/lib/task-api';
+import { contrastTextOnHex } from '@/lib/tag-color';
 
 /** Cột đầu: checkbox chọn task (My Tasks + Project Dashboard List). */
 export const MY_TASKS_TABLE_GRID =
@@ -91,6 +95,10 @@ export type TaskTableRowProps = {
   assigneeSaving?: boolean;
   onAddTaskAssignee?: (task: DashboardTask, userId: number) => Promise<void>;
   onRemoveTaskAssignee?: (task: DashboardTask, userId: number) => Promise<void>;
+  /** Workspace scope for tag picker (workspace tags API). */
+  workspaceId?: number | null;
+  onAddSubtask?: (task: DashboardTask) => void;
+  onTaskTagsChange?: (taskId: string, rows: TaskTagResponse[]) => void;
 };
 
 export function TaskTableRow({
@@ -114,9 +122,39 @@ export function TaskTableRow({
   assigneeSaving = false,
   onAddTaskAssignee,
   onRemoveTaskAssignee,
+  workspaceId = null,
+  onAddSubtask,
+  onTaskTagsChange,
 }: TaskTableRowProps) {
+  const [removingTagId, setRemovingTagId] = useState<number | null>(null);
   const currentStatus = statuses.find((status) => status.statusId === currentStatusId) ?? null;
   const gridClass = layout === 'withAssignees' ? TASK_TABLE_GRID_WITH_ASSIGNEE : MY_TASKS_TABLE_GRID;
+
+  const showRowQuickActions = Boolean(onAddSubtask || (workspaceId != null && workspaceId > 0 && onTaskTagsChange));
+
+  const tagPills: TaskTagEntry[] =
+    task.tagEntries && task.tagEntries.length > 0
+      ? task.tagEntries
+      : task.tags.slice(0, 4).map((name) => ({
+          tagId: 0,
+          tagName: name,
+          tagColor: '#e2e8f0',
+        }));
+
+  const visibleTags = tagPills.slice(0, 4);
+  const subtaskCount = task.directSubtaskCount ?? 0;
+
+  const handleRemoveTag = async (tagId: number) => {
+    if (!onTaskTagsChange || tagId < 1 || removingTagId != null) return;
+    setRemovingTagId(tagId);
+    try {
+      await removeTagFromTask(task.taskId, tagId);
+      const rows = await getTaskTags(task.taskId);
+      onTaskTagsChange(task.id, rows);
+    } finally {
+      setRemovingTagId(null);
+    }
+  };
 
   return (
     <div
@@ -124,7 +162,7 @@ export function TaskTableRow({
       onDoubleClick={onRowDoubleClick}
       className={cn(
         gridClass,
-        'cursor-default select-none items-center border-b border-slate-100 px-4 py-2.5 text-left transition-colors last:border-b-0 hover:bg-slate-50',
+        'group/taskrow cursor-default select-none items-center border-b border-slate-100 px-4 py-2.5 text-left transition-colors last:border-b-0 hover:bg-slate-50',
         rowSelected && 'bg-blue-50 hover:bg-blue-50',
       )}
       aria-label={`${task.title}. Double-click to open.`}
@@ -142,18 +180,103 @@ export function TaskTableRow({
         />
       </div>
 
-      <div className="min-w-0 pr-2">
-        <p className="truncate text-[15px] font-semibold text-slate-900">{task.title}</p>
-        <div className="mt-1 flex flex-wrap gap-1">
-          {task.tags.slice(0, 2).map((tag) => (
-            <Badge
-              key={tag}
-              variant="outline"
-              className="h-5 rounded-md border-slate-200 bg-slate-100 px-1.5 text-[10px] font-medium text-slate-600"
+      <div className="min-w-0 pr-1">
+        <div className="flex items-start gap-1">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="min-w-0 truncate text-[15px] font-semibold text-slate-900">{task.title}</p>
+              {subtaskCount > 0 ? (
+                <span
+                  className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600"
+                  title={`${subtaskCount} subtask${subtaskCount === 1 ? '' : 's'}`}
+                >
+                  <GitBranch className="size-3 text-slate-500" aria-hidden />
+                  {subtaskCount}
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {visibleTags.map((tag) => {
+                const bg = tag.tagColor?.trim() || '#94a3b8';
+                const fg = contrastTextOnHex(bg);
+                const canRemove = Boolean(onTaskTagsChange && tag.tagId >= 1);
+                return (
+                  <span
+                    key={`${tag.tagId}-${tag.tagName}`}
+                    className="group/tag relative inline-flex max-w-[10rem] items-center justify-center overflow-hidden rounded-md px-2 py-0.5 text-[10px] font-semibold leading-tight"
+                    style={{ backgroundColor: bg, color: fg }}
+                    title={tag.tagName}
+                  >
+                    <span
+                      className={cn(
+                        'relative z-0 min-w-0 max-w-full truncate text-center transition-opacity duration-150',
+                        canRemove &&
+                          'group-hover/tag:opacity-0 group-focus-within/tag:opacity-0',
+                      )}
+                    >
+                      {tag.tagName}
+                    </span>
+                    {canRemove ? (
+                      <button
+                        type="button"
+                        className={cn(
+                          'pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-md opacity-0 transition-opacity duration-150',
+                          'group-hover/tag:pointer-events-auto group-hover/tag:opacity-100',
+                          'group-focus-within/tag:pointer-events-auto group-focus-within/tag:opacity-100',
+                          'focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none',
+                        )}
+                        style={{ backgroundColor: bg, color: fg }}
+                        aria-label={`Remove tag ${tag.tagName}`}
+                        disabled={removingTagId === tag.tagId}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleRemoveTag(tag.tagId);
+                        }}
+                      >
+                        <X className="size-3.5 shrink-0" strokeWidth={2.75} aria-hidden />
+                      </button>
+                    ) : null}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+          {showRowQuickActions ? (
+            <div
+              className={cn(
+                'flex shrink-0 items-start gap-0.5 pt-0.5 opacity-0 pointer-events-none transition-opacity duration-150',
+                'group-hover/taskrow:pointer-events-auto group-hover/taskrow:opacity-100',
+                'group-focus-within/taskrow:pointer-events-auto group-focus-within/taskrow:opacity-100',
+              )}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
             >
-              {tag}
-            </Badge>
-          ))}
+              {onAddSubtask ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0 text-slate-500 hover:bg-slate-200/80 hover:text-slate-900"
+                  aria-label="Add subtask"
+                  title="Add subtask"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAddSubtask(task);
+                  }}
+                >
+                  <ListTree className="size-3.5" strokeWidth={2} />
+                </Button>
+              ) : null}
+              {workspaceId != null && workspaceId > 0 && onTaskTagsChange ? (
+                <TaskRowTagPopover
+                  taskId={task.taskId}
+                  workspaceId={workspaceId}
+                  currentTagNames={task.tags}
+                  onTagsUpdated={(rows) => onTaskTagsChange(task.id, rows)}
+                />
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 

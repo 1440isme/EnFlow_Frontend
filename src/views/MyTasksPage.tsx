@@ -52,6 +52,8 @@ import { CreateTaskDialog } from '@/components/tasks/CreateTaskDialog';
 import { getWorkspaceSnapshot, saveWorkspaceSnapshot, workspaceResponseToSnapshot } from '@/lib/workspace-storage';
 import { getStoredUserId } from '@/lib/auth-session';
 import { listWorkspacesByOwner } from '@/lib/workspace-api';
+import { countDirectSubtasksByParentId } from '@/lib/task-subtask-utils';
+import type { TaskTagResponse } from '@/lib/task-api';
 
 const metaColumnCell = 'min-w-0 border-l border-slate-200 pl-3';
 
@@ -178,6 +180,8 @@ export default function MyTasksPage() {
   const [activeTab, setActiveTab] = useState<MyTaskTab>('all');
 
   const [createOpen, setCreateOpen] = useState(false);
+  /** Khi mở CreateTaskDialog từ row — prefill project/list/parent. */
+  const [subtaskParentForDialog, setSubtaskParentForDialog] = useState<DashboardTask | null>(null);
 
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<number | null>(() =>
     typeof window !== 'undefined' ? getWorkspaceSnapshot().workspaceId : null,
@@ -241,23 +245,32 @@ export default function MyTasksPage() {
             assignees,
             currentUser.userId,
             currentUser.fullName?.trim() || currentUser.username || 'User',
-            tags.map((tag) => tag.tagName),
+            tags,
           );
         }),
       );
 
-      const uniqueListIds = Array.from(new Set(taskBundles.map((task) => task.listId)));
+      const subCountByParent = countDirectSubtasksByParentId(
+        taskBundles.map((t) => ({ taskId: t.taskId, parentTaskId: t.parentTaskId })),
+      );
+      const withSubtaskCounts = taskBundles.map((t) => ({
+        ...t,
+        directSubtaskCount: subCountByParent.get(t.taskId) ?? 0,
+      }));
+      const rootsOnly = withSubtaskCounts.filter((t) => t.parentTaskId == null);
+
+      const uniqueListIds = Array.from(new Set(rootsOnly.map((task) => task.listId)));
       const statusesByListEntries = await Promise.all(
         uniqueListIds.map(async (listId) => [listId, await getStatusesByList(listId)] as const),
       );
 
       const mappedStatusesByList = Object.fromEntries(statusesByListEntries);
-      const nextTaskStatusIds = Object.fromEntries(taskBundles.map((task) => [task.id, task.statusId]));
+      const nextTaskStatusIds = Object.fromEntries(rootsOnly.map((task) => [task.id, task.statusId]));
 
-      setDashboardTasks(taskBundles);
+      setDashboardTasks(rootsOnly);
       setStatusesByList(mappedStatusesByList);
       setTaskStatusIds(nextTaskStatusIds);
-      setDueDateDrafts(Object.fromEntries(taskBundles.map((task) => [task.id, toDateInputValue(task.dueDate)])));
+      setDueDateDrafts(Object.fromEntries(rootsOnly.map((task) => [task.id, toDateInputValue(task.dueDate)])));
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Could not load tasks from backend.';
       setErrorMessage(message);
@@ -270,6 +283,24 @@ export default function MyTasksPage() {
   useEffect(() => {
     void loadTasks();
   }, [loadTasks]);
+
+  const handleTaskTagsChange = useCallback((taskId: string, rows: TaskTagResponse[]) => {
+    setDashboardTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? {
+              ...t,
+              tags: rows.map((r) => r.tagName),
+              tagEntries: rows.map((r) => ({
+                tagId: r.tagId,
+                tagName: r.tagName,
+                tagColor: r.tagColor || '#94a3b8',
+              })),
+            }
+          : t,
+      ),
+    );
+  }, []);
 
   const assignedTasks = useMemo(() => {
     return dashboardTasks.map((task) => {
@@ -1033,7 +1064,10 @@ export default function MyTasksPage() {
               <Button
                 type="button"
                 className="ml-auto h-9 shrink-0 rounded-md bg-[#0057b8] px-3 text-xs font-semibold hover:bg-[#00489a]"
-                onClick={() => setCreateOpen(true)}
+                onClick={() => {
+                  setSubtaskParentForDialog(null);
+                  setCreateOpen(true);
+                }}
               >
                 <Plus className="mr-1 size-3.5" />
                 Create Task
@@ -1174,6 +1208,12 @@ export default function MyTasksPage() {
                               statusSaving={Boolean(savingTaskIds[task.id])}
                               prioritySaving={Boolean(prioritySavingTaskIds[task.id])}
                               dueDateSaving={Boolean(dueDateSavingTaskIds[task.id])}
+                              workspaceId={activeWorkspaceId}
+                              onAddSubtask={(t) => {
+                                setSubtaskParentForDialog(t);
+                                setCreateOpen(true);
+                              }}
+                              onTaskTagsChange={handleTaskTagsChange}
                             />
                           );
                         })}
@@ -1282,7 +1322,17 @@ export default function MyTasksPage() {
         ) : null}
       </div>
 
-      <CreateTaskDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={() => void loadTasks()} />
+      <CreateTaskDialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open);
+          if (!open) setSubtaskParentForDialog(null);
+        }}
+        lockedProjectId={subtaskParentForDialog?.projectId ?? undefined}
+        defaultListId={subtaskParentForDialog?.listId ?? undefined}
+        parentTaskId={subtaskParentForDialog?.taskId ?? undefined}
+        onCreated={() => void loadTasks()}
+      />
 
       <TaskBulkDeleteDialog
         open={deleteDialogOpen}

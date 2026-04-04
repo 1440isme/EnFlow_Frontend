@@ -1,4 +1,4 @@
-import type { TaskResponse, TaskAssigneeResponse } from '@/lib/task-api';
+import type { TaskResponse, TaskAssigneeResponse, TaskTagResponse } from '@/lib/task-api';
 import type { Task } from '@/types/task';
 import type { DashboardTask } from '@/types/dashboard-task';
 
@@ -45,7 +45,7 @@ export function toDashboardTask(
   assignees: TaskAssigneeResponse[],
   currentUserId: number,
   currentUserName: string,
-  tagNames: string[],
+  taskTags: TaskTagResponse[],
 ): DashboardTask {
   const primaryAssignee = pickPrimaryAssignee(assignees, currentUserId);
   const assigneeName = primaryAssignee?.fullName?.trim() || currentUserName || 'User';
@@ -61,6 +61,7 @@ export function toDashboardTask(
     listId: task.listId,
     statusId: task.statusId,
     reporterId: task.reporterId,
+    parentTaskId: task.parentTaskId ?? null,
     startDate: task.startDate ?? '',
     completedAt: task.completedAt ?? '',
     assignee: assigneeName,
@@ -69,7 +70,12 @@ export function toDashboardTask(
     list: task.listName?.trim() || `List #${task.listId}`,
     dueDate: task.dueDate ?? '',
     createdAt: task.createdAt,
-    tags: tagNames,
+    tags: taskTags.map((x) => x.tagName),
+    tagEntries: taskTags.map((x) => ({
+      tagId: x.tagId,
+      tagName: x.tagName,
+      tagColor: x.tagColor || '#94a3b8',
+    })),
     taskType: task.taskType,
     timeEstimateDays: task.timeEstimateDays,
     updatedAt: task.updatedAt,
