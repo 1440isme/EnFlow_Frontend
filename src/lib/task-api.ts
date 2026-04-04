@@ -161,6 +161,51 @@ export type TaskAssigneeResponse = {
   assignedAt: string;
 };
 
+export type CommentResponse = {
+  commentId: number;
+  taskId: number;
+  userId: number;
+  parentCommentId: number | null;
+  content: string;
+  isEdited: boolean;
+  isDeleted: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CommentCreationRequest = {
+  userId: number;
+  parentCommentId?: number | null;
+  content: string;
+};
+
+export type CommentUpdateRequest = {
+  content: string;
+};
+
+export type AttachmentResponse = {
+  attachmentId: number;
+  taskId: number;
+  uploadedBy: number;
+  fileName: string;
+  fileUrl: string;
+  mimeType: string;
+  createdAt: string;
+};
+
+export type AttachmentCreationRequest = {
+  uploadedBy: number;
+  fileName: string;
+  fileUrl: string;
+  mimeType: string;
+};
+
+export type AttachmentUpdateRequest = Partial<{
+  fileName: string;
+  fileUrl: string;
+  mimeType: string;
+}>;
+
 export type StatusResponse = {
   statusId: number;
   name: string;
@@ -245,6 +290,70 @@ export async function getTaskAssignees(
       auth: true,
     },
   );
+}
+
+export async function getCommentsByTask(taskId: number): Promise<CommentResponse[]> {
+  return requestJson<CommentResponse[]>("GET", `/enflow/comments/tasks/${taskId}`, {
+    auth: true,
+  });
+}
+
+export async function createComment(
+  taskId: number,
+  body: CommentCreationRequest,
+): Promise<CommentResponse> {
+  return requestJson<CommentResponse>("POST", `/enflow/comments/tasks/${taskId}`, {
+    body,
+    auth: true,
+  });
+}
+
+export async function updateComment(
+  commentId: number,
+  body: CommentUpdateRequest,
+): Promise<CommentResponse> {
+  return requestJson<CommentResponse>("PUT", `/enflow/comments/${commentId}`, {
+    body,
+    auth: true,
+  });
+}
+
+export async function deleteComment(commentId: number): Promise<void> {
+  await requestJson<void>("DELETE", `/enflow/comments/${commentId}`, {
+    auth: true,
+  });
+}
+
+export async function getAttachmentsByTask(taskId: number): Promise<AttachmentResponse[]> {
+  return requestJson<AttachmentResponse[]>("GET", `/enflow/attachments/tasks/${taskId}`, {
+    auth: true,
+  });
+}
+
+export async function createAttachment(
+  taskId: number,
+  body: AttachmentCreationRequest,
+): Promise<AttachmentResponse> {
+  return requestJson<AttachmentResponse>("POST", `/enflow/attachments/tasks/${taskId}`, {
+    body,
+    auth: true,
+  });
+}
+
+export async function updateAttachment(
+  attachmentId: number,
+  body: AttachmentUpdateRequest,
+): Promise<AttachmentResponse> {
+  return requestJson<AttachmentResponse>("PUT", `/enflow/attachments/${attachmentId}`, {
+    body,
+    auth: true,
+  });
+}
+
+export async function deleteAttachment(attachmentId: number): Promise<void> {
+  await requestJson<void>("DELETE", `/enflow/attachments/${attachmentId}`, {
+    auth: true,
+  });
 }
 
 export async function getStatusesByList(
