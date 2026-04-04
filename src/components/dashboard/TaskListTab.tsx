@@ -17,13 +17,17 @@ import {
 } from '@/lib/task-api';
 import { countDirectSubtasksByParentId } from '@/lib/task-subtask-utils';
 import { assigneeUserIdsFromRows, taskAssigneeRowsToDisplay } from '@/lib/task-assignee-utils';
-import { getListsByProject } from '@/lib/list-api';
-import { getProjectById } from '@/lib/project-api';
+import { getProjectById, getProjectListsStatuses } from '@/lib/project-api';
 import { listWorkspaceMembers } from '@/lib/workspace-api';
-import { getStatusesByProject } from '@/lib/status-api';
 import { getCurrentUser, getUserById } from '@/lib/user-api';
 import { ApiError } from '@/lib/http';
-import type { ProjectListResponse, StatusesResponse, UserResponse, WorkspaceMemberResponse } from '@/types/api';
+import type {
+  ProjectListResponse,
+  ProjectListWithStatusesResponse,
+  StatusesResponse,
+  UserResponse,
+  WorkspaceMemberResponse,
+} from '@/types/api';
 import CreateListDialog from './CreateListDialog';
 import RenameListDialog from './RenameListDialog';
 import DeleteListDialog from './DeleteListDialog';
@@ -203,10 +207,9 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
         avatarUrl: me.avatarUrl ?? null,
       });
 
-      const [rawTasks, listRows, statusRows, project] = await Promise.all([
+      const [rawTasks, listStatusRows, project] = await Promise.all([
         listId ? listTaskResponsesByList(listId) : listTaskResponsesByProject(projectNum),
-        getListsByProject(projectNum),
-        getStatusesByProject(projectNum),
+        getProjectListsStatuses(projectNum),
         getProjectById(projectNum),
       ]);
 
@@ -226,9 +229,9 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
         }
       }
 
-      const listData = normalizeCollection<ProjectListResponse>(listRows);
-      const statusData = normalizeCollection<StatusesResponse>(statusRows);
-      setLists(listData);
+      const listData = normalizeCollection<ProjectListWithStatusesResponse>(listStatusRows?.lists ?? []);
+      const statusData = listData.flatMap((list) => normalizeCollection<StatusesResponse>(list.statuses ?? []));
+      setLists(listData.map(({ statuses: _statuses, ...list }) => list));
       setStatuses(statusData);
 
       const byList: StatusesByList = {};

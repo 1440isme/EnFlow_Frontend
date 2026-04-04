@@ -4,17 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import type { Task, Priority } from '@/types/task';
 import type { DashboardTask } from '@/types/dashboard-task';
-import type { ProjectListResponse, StatusesResponse, UserResponse } from '@/types/api';
+import type { ProjectListResponse, ProjectListWithStatusesResponse, StatusesResponse, UserResponse } from '@/types/api';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Calendar } from 'lucide-react';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { Filter, Plus } from 'lucide-react';
+import { Filter, MoreVertical, Plus, Trash2 } from 'lucide-react';
 import CreateStatusDialog from './CreateStatusDialog';
+import DeleteStatusDialog from './DeleteStatusDialog';
 import { CreateTaskDialog } from '@/components/tasks/CreateTaskDialog';
-import { getListsByProject } from '@/lib/list-api';
-import { getStatusesByList, getStatusesByProject } from '@/lib/status-api';
+import { getProjectListsStatuses } from '@/lib/project-api';
 import {
   getTaskAssignees,
   getTaskTags,
@@ -30,9 +30,22 @@ import { Checkbox } from '../ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { cn } from '../ui/utils';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { AssigneeAvatarStack } from '@/components/tasks/AssigneeAvatarStack';
-import { STATUS_GROUP_ORDER, formatTaskStatusLabel, sortStatuses, statusGroupHeaderDotHex } from '@/lib/task-status-ui';
+import {
+  STATUS_GROUP_ORDER,
+  formatStatusLabel,
+  formatTaskStatusLabel,
+  sortStatuses,
+  statusGroupHeaderDotHex,
+} from '@/lib/task-status-ui';
 import { formatTaskPriorityLabel, TASK_PRIORITY_DISPLAY_ORDER } from '@/lib/task-priority-ui';
+import { normalizeStatusGroup } from '@/lib/status-groups';
 
 const priorityColors: Record<Priority, string> = {
   low: 'bg-gray-100 text-gray-700',
@@ -64,7 +77,10 @@ function normalizeCollection<T>(value: unknown): T[] {
   return value ? ([value] as T[]) : [];
 }
 
-function taskBelongsToStatus(task: DashboardTask, status: StatusesResponse): boolean {
+function taskBelongsToStatus(task: DashboardTask, status: StatusesResponse, isListScope: boolean): boolean {
+  // In list scope, each status is a separate column; compare by exact statusId only.
+  if (isListScope) return task.statusId === status.statusId;
+
   // In project scope we dedupe columns by `statusGroup`, so compare by visual bucket.
   if (task.statusId === status.statusId) return true;
   const bucket = mapBackendStatusGroup(String(status.statusGroup ?? ''));
@@ -145,6 +161,8 @@ interface ColumnProps {
   title: string;
   color?: string;
   tasks: DashboardTask[];
+  canDelete?: boolean;
+  onDelete?: () => void;
   onTaskClick: (taskId: string) => void;
   onDrop: (taskId: string, newStatusId: number) => void;
 }
@@ -154,7 +172,7 @@ type AddStatusColumnProps = {
   disabled?: boolean;
 };
 
-function Column({ statusId, title, color, tasks, onTaskClick, onDrop }: ColumnProps) {
+function Column({ statusId, title, color, tasks, canDelete, onDelete, onTaskClick, onDrop }: ColumnProps) {
   const [{ isOver }, drop] = useDrop(() => ({
     accept: 'TASK',
     drop: (item: DragTaskItem) => {
@@ -173,15 +191,31 @@ function Column({ statusId, title, color, tasks, onTaskClick, onDrop }: ColumnPr
   return (
     <div className="flex-1 min-w-[300px]">
       <div className="mb-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
              {/* color dot indicator */}
              <span className="w-3 h-3 rounded-full" style={{ backgroundColor: headerColor }}></span>
              <h3 className="font-semibold text-gray-900">{title}</h3>
           </div>
-          <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">
-            {tasks.length}
-          </span>
+          <div className="flex items-center gap-1">
+            {canDelete && onDelete ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
+                  aria-label={`Options for ${title}`}
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem className="cursor-pointer text-red-600" onClick={onDelete}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+            <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">{tasks.length}</span>
+          </div>
         </div>
       </div>
       <div
@@ -290,6 +324,8 @@ export default function KanbanBoardTab({ listId }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createStatusOpen, setCreateStatusOpen] = useState(false);
+  const [deleteStatusOpen, setDeleteStatusOpen] = useState(false);
+  const [statusToDelete, setStatusToDelete] = useState<StatusesResponse | null>(null);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
 
   const [currentUser, setCurrentUser] = useState<{ userId: number; fullName: string; avatarUrl: string | null } | null>(null);
@@ -330,13 +366,17 @@ export default function KanbanBoardTab({ listId }: Props) {
         avatarUrl: me.avatarUrl ?? null,
       });
 
-      const [rawTasks, listRows, statusRows] = await Promise.all([
+      const [rawTasks, listStatusRows] = await Promise.all([
         listId ? listTaskResponsesByList(listId) : listTaskResponsesByProject(projectNum),
-        getListsByProject(projectNum),
-        listId ? getStatusesByList(listId) : getStatusesByProject(projectNum),
+        getProjectListsStatuses(projectNum),
       ]);
 
-      const statusData = normalizeCollection<StatusesResponse>(statusRows);
+      const listData = normalizeCollection<ProjectListWithStatusesResponse>(listStatusRows?.lists ?? []);
+      const statusData = (listId
+        ? listData.filter((list) => list.listProjectId === listId)
+        : listData
+      ).flatMap((list) => normalizeCollection<StatusesResponse>(list.statuses ?? []));
+
       const byList: StatusesByList = {};
       statusData.forEach((s) => {
         if (!byList[s.listId]) byList[s.listId] = [];
@@ -348,7 +388,11 @@ export default function KanbanBoardTab({ listId }: Props) {
       setStatusesByListState(byList);
       setStatuses([...statusData].sort((a, b) => a.position - b.position));
 
-      setLists([...normalizeCollection<ProjectListResponse>(listRows)].sort((a, b) => a.position - b.position));
+      setLists(
+        listData
+          .map(({ statuses: _statuses, ...list }) => list)
+          .sort((a, b) => a.position - b.position),
+      );
 
       const userById = new Map<number, UserResponse | null | undefined>();
       userById.set(me.userId, me);
@@ -417,6 +461,15 @@ export default function KanbanBoardTab({ listId }: Props) {
   };
 
   const handleStatusCreated = async () => {
+    await loadData();
+  };
+
+  const handleDeleteStatusClick = (status: StatusesResponse) => {
+    setStatusToDelete(status);
+    setDeleteStatusOpen(true);
+  };
+
+  const handleStatusDeleted = async () => {
     await loadData();
   };
 
@@ -549,7 +602,7 @@ export default function KanbanBoardTab({ listId }: Props) {
     const seenGroups = new Set<string>();
     const uniqueByGroup: StatusesResponse[] = [];
     displayStatuses.forEach((status) => {
-      const groupKey = String(status.statusGroup || '').trim();
+      const groupKey = normalizeStatusGroup(status.statusGroup);
       if (!seenGroups.has(groupKey)) {
         seenGroups.add(groupKey);
         uniqueByGroup.push(status);
@@ -561,7 +614,7 @@ export default function KanbanBoardTab({ listId }: Props) {
   // Build statusGroup -> first statusId mapping for drop handler
   const statusGroupMap = new Map<string, number>();
   displayStatuses.forEach((status) => {
-    const groupKey = String(status.statusGroup || '').trim();
+    const groupKey = normalizeStatusGroup(status.statusGroup);
     if (!statusGroupMap.has(groupKey)) statusGroupMap.set(groupKey, status.statusId);
   });
 
@@ -569,8 +622,8 @@ export default function KanbanBoardTab({ listId }: Props) {
     const displayedStatus = displayStatuses.find((s) => s.statusId === displayedStatusId);
     if (!displayedStatus) return;
 
-    const groupKey = String(displayedStatus.statusGroup || '').trim();
-    const actualStatusIdToUse = statusGroupMap.get(groupKey) ?? displayedStatusId;
+    const groupKey = normalizeStatusGroup(displayedStatus.statusGroup);
+    const actualStatusIdToUse = isListScope ? displayedStatusId : statusGroupMap.get(groupKey) ?? displayedStatusId;
     const nextStatusBucket = mapBackendStatusGroup(String(displayedStatus.statusGroup ?? ''));
 
     const previousTasks = [...tasks];
@@ -814,8 +867,8 @@ export default function KanbanBoardTab({ listId }: Props) {
           {displayStatuses.length > 0 ? (
             <>
               {displayStatuses.map((status) => {
-                const columnTasks = filteredTasks.filter((task) => taskBelongsToStatus(task, status));
-                const title = formatTaskStatusLabel(mapBackendStatusGroup(String(status.statusGroup ?? '')));
+                const columnTasks = filteredTasks.filter((task) => taskBelongsToStatus(task, status, isListScope));
+                const title = formatStatusLabel(status);
                 const dotColor =
                   (typeof status.color === 'string' && status.color.trim().length > 0
                     ? status.color.trim()
@@ -827,6 +880,8 @@ export default function KanbanBoardTab({ listId }: Props) {
                     title={title}
                     color={dotColor}
                     tasks={columnTasks}
+                    canDelete
+                    onDelete={() => handleDeleteStatusClick(status)}
                     onTaskClick={handleTaskClick}
                     onDrop={handleDrop}
                   />
@@ -849,6 +904,13 @@ export default function KanbanBoardTab({ listId }: Props) {
         lists={selectedListOptions}
         existingStatuses={statuses}
         onCreated={handleStatusCreated}
+      />
+
+      <DeleteStatusDialog
+        open={deleteStatusOpen}
+        onOpenChange={setDeleteStatusOpen}
+        status={statusToDelete}
+        onDeleted={handleStatusDeleted}
       />
     </div>
   );
