@@ -1,5 +1,60 @@
 "use client";
 
+import { useEffect, useMemo, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { ArrowLeft, Calendar, User, Flag, Folder, Tag, MessageSquare, Paperclip } from 'lucide-react';
+import type { Priority, Task } from '@/types/task';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import { Card } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+import { getTaskById } from '@/lib/task-api';
+import { getStatusById } from '@/lib/status-api';
+import type { StatusesResponse } from '@/types/api';
+import { formatTaskPriorityLabel } from '@/lib/task-priority-ui';
+
+const priorityColors: Record<Priority, string> = {
+  low: 'bg-gray-100 text-gray-700',
+  medium: 'bg-blue-100 text-blue-700',
+  normal: 'bg-green-100 text-green-700',
+  high: 'bg-orange-100 text-orange-700',
+  urgent: 'bg-red-100 text-red-700',
+};
+
+const statusBadgeClasses: Record<string, string> = {
+  'to do': 'bg-gray-100 text-gray-700',
+  'in progress': 'bg-orange-100 text-orange-700',
+  completed: 'bg-green-100 text-green-700',
+  review: 'bg-blue-100 text-blue-700',
+  testing: 'bg-purple-100 text-purple-700',
+  deploy: 'bg-indigo-100 text-indigo-700',
+  backlog: 'bg-slate-100 text-slate-700',
+  idea: 'bg-emerald-100 text-emerald-700',
+};
+
+function normalizeStatusGroup(value: unknown) {
+  return String(value ?? '').trim().toLowerCase().replace(/[_-]+/g, ' ');
+}
+
+function getStatusBadgeClass(statusGroup?: string) {
+  return statusBadgeClasses[normalizeStatusGroup(statusGroup)] ?? 'bg-gray-100 text-gray-700';
+}
+
+function getStatusLabel(statusGroup?: string) {
+  return statusGroup?.trim() || 'Không xác định';
+}
+
+function TaskDetailBody({
+  task,
+  statusLabel,
+  statusBadgeClass,
+}: {
+  task: Task;
+  statusLabel: string;
+  statusBadgeClass: string;
+}) {
+  const router = useRouter();
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AtSign,
@@ -638,6 +693,43 @@ export default function TaskDetailPage({ taskId }: { taskId: string }) {
                       </button>
                     )}
                   </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex items-start gap-3">
+                <Flag className="w-5 h-5 text-gray-600 mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-sm text-gray-600 mb-1">Priority</div>
+                  <Badge className={priorityColors[task.priority]}>
+                    {formatTaskPriorityLabel(task.priority)}
+                  </Badge>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex items-start gap-3">
+                <Folder className="w-5 h-5 text-gray-600 mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-sm text-gray-600 mb-1">Dự án</div>
+                  <div className="font-medium text-gray-900">{task.project}</div>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex items-start gap-3">
+                <Tag className="w-5 h-5 text-gray-600 mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-sm text-gray-600 mb-1">Tags</div>
+                  <div className="flex flex-wrap gap-1">
+                    {task.tags.map((tag, idx) => (
+                      <Badge key={idx} variant="outline" className="text-xs">
+                        {tag}
+                      </Badge>
+                    ))}
                 </Section>
 
                 <Section title="Fields">
