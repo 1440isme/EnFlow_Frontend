@@ -34,6 +34,8 @@ import {
   Save,
   Tag,
   Trash2,
+  Check,
+  ChevronDown,
   UserRound,
   Video,
 } from "lucide-react";
@@ -51,6 +53,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/components/ui/utils";
@@ -90,15 +98,16 @@ import {
 } from "@/lib/task-api";
 import {
   mapBackendPriority,
-  mapBackendStatusGroup,
   mapFrontendPriorityToBackend,
   pickPrimaryAssignee,
 } from "@/lib/dashboard-task-mapper";
 import { ApiError, parseErrorMessage } from "@/lib/http";
 import { formatTaskPriorityLabel } from "@/lib/task-priority-ui";
 import {
+  formatStatusLabel,
   normalizeBackendStatusGroupKey,
-  statusBadgeTone,
+  statusBadgePresentation,
+  statusMenuItemPresentation,
 } from "@/lib/task-status-ui";
 import { getCurrentUser, getUserById } from "@/lib/user-api";
 import { getProjectById } from "@/lib/project-api";
@@ -296,9 +305,6 @@ function buildProgress(task: TaskResponse, statusGroup?: string) {
   return 0;
 }
 
-function statusGroupToTaskStatus(group?: BackendStatusGroup | string) {
-  return mapBackendStatusGroup(String(group ?? ""));
-}
 
 function isTaskDone(group?: string, completedAt?: string | null) {
   return (
@@ -396,6 +402,15 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     [statusOptions, task?.statusId],
   );
 
+  const headerStatusBadge = useMemo(
+    () =>
+      statusBadgePresentation(
+        currentStatus?.statusGroup ?? "to_do",
+        currentStatus?.color,
+      ),
+    [currentStatus?.statusGroup, currentStatus?.color],
+  );
+
   const progressValue = useMemo(
     () => (task ? buildProgress(task, currentStatus?.statusGroup) : 0),
     [currentStatus?.statusGroup, task],
@@ -413,7 +428,9 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       taskId: task.taskId,
       title: task.title,
       description: task.description ?? "",
-      status: statusGroupToTaskStatus(currentStatus?.statusGroup),
+      status: currentStatus ? formatStatusOptionLabel(currentStatus) : getTaskVisualStatus(task, undefined),
+      statusGroup: String(currentStatus?.statusGroup ?? ""),
+      statusColor: currentStatus?.color ?? null,
       priority: mapBackendPriority(task.priority),
       assignee:
         primary?.fullName?.trim() ||
@@ -439,7 +456,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       updatedAt: task.updatedAt,
       assigneesDisplay: assigneeRows,
     };
-  }, [currentStatus?.statusGroup, task, taskAssignees, taskTags, viewer]);
+  }, [currentStatus, task, taskAssignees, taskTags, viewer]);
 
   const mapCommentItems = useCallback(
     (rows: CommentResponse[]): CommentItem[] =>
@@ -1259,8 +1276,9 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                   <Badge
                     className={cn(
                       "rounded-full border px-3 py-1 text-[11px] font-semibold",
-                      statusBadgeTone(currentStatus?.statusGroup ?? "to_do"),
+                      headerStatusBadge.className,
                     )}
+                    style={headerStatusBadge.style}
                   >
                     {getTaskVisualStatus(task, currentStatus?.statusGroup)}
                   </Badge>
@@ -1293,26 +1311,79 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                         <span>Status</span>
                       </div>
                       <div className="min-w-0">
-                        <Select
-                          value={String(task.statusId)}
-                          onValueChange={(value) =>
-                            void handleStatusChange(Number(value))
-                          }
-                        >
-                          <SelectTrigger className="h-10 rounded-xl border-slate-200 bg-white">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {statusOptions.map((status) => (
-                              <SelectItem
-                                key={status.statusId}
-                                value={String(status.statusId)}
-                              >
-                                {formatStatusOptionLabel(status)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              disabled={
+                                isSaving ||
+                                statusOptions.length === 0 ||
+                                task.archived
+                              }
+                              className={cn(
+                                "inline-flex h-10 w-full max-w-md items-center justify-between gap-2 rounded-xl border px-3 text-left text-sm font-semibold shadow-none outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60",
+                                headerStatusBadge.className,
+                              )}
+                              style={headerStatusBadge.style}
+                            >
+                              <span className="min-w-0 truncate">
+                                {currentStatus
+                                  ? formatStatusLabel(currentStatus)
+                                  : "—"}
+                              </span>
+                              <ChevronDown
+                                className="size-4 shrink-0 opacity-60"
+                                aria-hidden
+                              />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="start"
+                            className="min-w-[min(100vw-2rem,20rem)] max-w-md p-1"
+                            onCloseAutoFocus={(event) => event.preventDefault()}
+                          >
+                            {statusOptions.map((status) => {
+                              const menu = statusMenuItemPresentation(
+                                status.statusGroup,
+                                status.color,
+                              );
+                              const selected = status.statusId === task.statusId;
+                              return (
+                                <DropdownMenuItem
+                                  key={status.statusId}
+                                  className="cursor-pointer gap-2 rounded-md px-2 py-2 focus:bg-slate-50"
+                                  onSelect={() =>
+                                    void handleStatusChange(status.statusId)
+                                  }
+                                >
+                                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                                    <span
+                                      className={menu.dotClassName}
+                                      style={menu.dotStyle}
+                                      aria-hidden
+                                    />
+                                    <span
+                                      className={cn(
+                                        "truncate text-sm font-medium",
+                                        menu.labelClassName,
+                                      )}
+                                    >
+                                      {formatStatusLabel(status)}
+                                    </span>
+                                  </span>
+                                  {selected ? (
+                                    <Check
+                                      className="size-4 shrink-0 text-slate-400"
+                                      strokeWidth={2.5}
+                                    />
+                                  ) : (
+                                    <span className="size-4 shrink-0" aria-hidden />
+                                  )}
+                                </DropdownMenuItem>
+                              );
+                            })}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
 
@@ -1520,6 +1591,10 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                         (status) =>
                           status.statusId === subtaskRow.task.statusId,
                       );
+                      const subtaskStatusBadge = statusBadgePresentation(
+                        subtaskStatus?.statusGroup ?? "to_do",
+                        subtaskStatus?.color,
+                      );
                       const done = isTaskDone(
                         subtaskStatus?.statusGroup,
                         subtaskRow.task.completedAt,
@@ -1533,7 +1608,11 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                         taskId: subtaskRow.task.taskId,
                         title: subtaskRow.task.title,
                         description: subtaskRow.task.description ?? "",
-                        status: statusGroupToTaskStatus(subtaskStatus?.statusGroup),
+                        status: subtaskStatus
+                          ? formatStatusOptionLabel(subtaskStatus)
+                          : getTaskVisualStatus(subtaskRow.task, undefined),
+                        statusGroup: String(subtaskStatus?.statusGroup ?? ""),
+                        statusColor: subtaskStatus?.color ?? null,
                         priority: mapBackendPriority(subtaskRow.task.priority),
                         assignee:
                           pickPrimaryAssignee(
@@ -1621,46 +1700,96 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                             />
                           </div>
                           <div className="flex items-center">
-                            <Select
-                              value={String(subtaskRow.task.statusId)}
-                              onValueChange={(value) =>
-                                void handleSubtaskUpdate(subtaskRow.task.taskId, {
-                                  statusId: Number(value),
-                                  completedAt:
-                                    normalizeBackendStatusGroupKey(
-                                      statusOptions.find(
-                                        (status) =>
-                                          status.statusId === Number(value),
-                                      )?.statusGroup ?? "",
-                                    ) === "completed"
-                                      ? subtaskRow.task.completedAt ??
-                                        new Date().toISOString()
-                                      : null,
-                                })
-                              }
-                            >
-                              <SelectTrigger
-                                className={cn(
-                                  "h-8 rounded-full border px-3 text-[11px] font-semibold shadow-none",
-                                  statusBadgeTone(
-                                    subtaskStatus?.statusGroup ?? "to_do",
-                                  ),
-                                )}
-                                disabled={subtaskBusyId === subtaskRow.task.taskId}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    subtaskBusyId === subtaskRow.task.taskId ||
+                                    statusOptions.length === 0
+                                  }
+                                  className={cn(
+                                    "inline-flex h-8 max-w-full min-w-0 items-center gap-1 rounded-full border px-3 text-left text-[11px] font-semibold shadow-none outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60",
+                                    subtaskStatusBadge.className,
+                                  )}
+                                  style={subtaskStatusBadge.style}
+                                >
+                                  <span className="min-w-0 max-w-[9rem] truncate">
+                                    {subtaskStatus
+                                      ? formatStatusLabel(subtaskStatus)
+                                      : "—"}
+                                  </span>
+                                  <ChevronDown
+                                    className="size-3 shrink-0 opacity-70"
+                                    aria-hidden
+                                  />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                align="start"
+                                className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[min(100vw-2rem,14rem)] max-w-[16rem] p-1"
+                                onCloseAutoFocus={(event) =>
+                                  event.preventDefault()
+                                }
                               >
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {statusOptions.map((status) => (
-                                  <SelectItem
-                                    key={status.statusId}
-                                    value={String(status.statusId)}
-                                  >
-                                    {formatStatusOptionLabel(status)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                                {statusOptions.map((status) => {
+                                  const menu = statusMenuItemPresentation(
+                                    status.statusGroup,
+                                    status.color,
+                                  );
+                                  const selected =
+                                    status.statusId === subtaskRow.task.statusId;
+                                  return (
+                                    <DropdownMenuItem
+                                      key={status.statusId}
+                                      className="cursor-pointer gap-2 rounded-md px-2 py-1.5 focus:bg-slate-50"
+                                      onSelect={() =>
+                                        void handleSubtaskUpdate(
+                                          subtaskRow.task.taskId,
+                                          {
+                                            statusId: status.statusId,
+                                            completedAt:
+                                              normalizeBackendStatusGroupKey(
+                                                status.statusGroup ?? "",
+                                              ) === "completed"
+                                                ? subtaskRow.task.completedAt ??
+                                                  new Date().toISOString()
+                                                : null,
+                                          },
+                                        )
+                                      }
+                                    >
+                                      <span className="flex min-w-0 flex-1 items-center gap-2">
+                                        <span
+                                          className={menu.dotClassName}
+                                          style={menu.dotStyle}
+                                          aria-hidden
+                                        />
+                                        <span
+                                          className={cn(
+                                            "truncate text-sm font-medium",
+                                            menu.labelClassName,
+                                          )}
+                                        >
+                                          {formatStatusLabel(status)}
+                                        </span>
+                                      </span>
+                                      {selected ? (
+                                        <Check
+                                          className="size-4 shrink-0 text-slate-400"
+                                          strokeWidth={2.5}
+                                        />
+                                      ) : (
+                                        <span
+                                          className="size-4 shrink-0"
+                                          aria-hidden
+                                        />
+                                      )}
+                                    </DropdownMenuItem>
+                                  );
+                                })}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                           <div className="text-sm text-slate-600">
                             <Select

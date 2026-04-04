@@ -2,8 +2,11 @@ import { requestJson, ApiError } from "@/lib/http";
 import type { Task } from "@/types/task";
 import { getProjectsByWorkspace } from "@/lib/project-api";
 import { getWorkspaceSnapshot } from "@/lib/workspace-storage";
+import { formatStatusLabel } from "@/lib/task-status-ui";
 
 const FALLBACK_AVATAR = "/placeholder.svg";
+
+export type TaskStatusMeta = { label: string; statusGroup: string; color?: string | null };
 
 function mapBackendPriorityToFrontend(
   priority: BackendTaskPriority,
@@ -13,71 +16,53 @@ function mapBackendPriorityToFrontend(
   return priority as Task["priority"];
 }
 
-function mapBackendStatusGroupToFrontendStatus(
-  statusGroup: unknown,
-): Task["status"] {
-  const raw = String(statusGroup ?? "").trim();
-  if (!raw) return "todo";
-
-  const s = raw.toLowerCase();
-  // Completed
-  if (s.includes("completed")) return "completed";
-
-  // Consider these "in progress" lanes
-  // - backend: IN_PROGRESS / IN PROGRESS, REVIEW, TESTING, DEPLOY
-  if (
-    s.includes("in_progress") ||
-    s.includes("in progress") ||
-    s.includes("in-prog") ||
-    s.includes("review") ||
-    s.includes("testing") ||
-    s.includes("deploy")
-  ) {
-    return "in-progress";
-  }
-
-  // Todo-ish buckets
-  return "todo";
-}
-
 function taskResponseToTask(
   task: TaskResponse,
-  statusById: Map<number, Task["status"]>,
+  statusById: Map<number, TaskStatusMeta>,
 ): Task {
+  const meta = statusById.get(task.statusId);
   return {
     id: String(task.taskId),
     title: task.title,
     description: task.description ?? "",
-    status: statusById.get(task.statusId) ?? "todo",
+    status: meta?.label ?? `Status #${task.statusId}`,
+    statusGroup: meta?.statusGroup,
+    statusColor: meta?.color ?? null,
     statusId: task.statusId,
     listId: task.listId,
     priority: mapBackendPriorityToFrontend(task.priority),
-    assignee: "", // cần endpoint riêng cho assignee; placeholder cho tới khi enrich
+    assignee: "", // enrich qua getTaskAssignees khi cần (vd. Overview)
     assigneeAvatar: FALLBACK_AVATAR,
     project: String(task.projectId), // để match với ProjectsPage
+    projectDisplayName: task.projectName?.trim() || undefined,
     dueDate: task.dueDate ?? "",
     createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
     tags: [],
   };
 }
 
-async function buildStatusByIdForListIds(
+async function buildStatusMetaByIdForListIds(
   listIds: number[],
-): Promise<Map<number, Task["status"]>> {
+): Promise<Map<number, TaskStatusMeta>> {
   const uniq = Array.from(new Set(listIds)).filter((id) => Number.isFinite(id));
   const statusResponses = await Promise.all(
     uniq.map(async (listId) => {
       try {
         return await getStatusesByList(listId);
       } catch {
-        return [];
+        return [] as StatusResponse[];
       }
     }),
   );
 
-  const byId = new Map<number, Task["status"]>();
+  const byId = new Map<number, TaskStatusMeta>();
   statusResponses.flat().forEach((s) => {
-    byId.set(s.statusId, mapBackendStatusGroupToFrontendStatus(s.statusGroup));
+    byId.set(s.statusId, {
+      label: formatStatusLabel(s),
+      statusGroup: String(s.statusGroup ?? ""),
+      color: s.color ?? null,
+    });
   });
   return byId;
 }
@@ -226,19 +211,31 @@ export async function getTask(taskId: number): Promise<TaskResponse> {
 // Legacy UI helper expects Task shape (not raw TaskResponse).
 export async function getTaskById(taskId: number): Promise<Task> {
   const task = await getTask(taskId);
+  const metaMap = await buildStatusMetaByIdForListIds([task.listId]);
+  const meta = metaMap.get(task.statusId);
+  const fallbackGroup = task.completedAt
+    ? "completed"
+    : task.startDate
+      ? "in_progress"
+      : "to_do";
+  const fallbackLabel = fallbackGroup.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   return {
     id: String(task.taskId),
     title: task.title,
     description: task.description ?? "",
-    status: task.completedAt ? "done" : task.startDate ? "in-progress" : "todo",
+    status: meta?.label ?? fallbackLabel,
+    statusGroup: meta?.statusGroup ?? fallbackGroup,
+    statusColor: meta?.color ?? null,
     statusId: task.statusId,
     listId: task.listId,
     priority: mapBackendPriorityToFrontend(task.priority),
     assignee: "User",
     assigneeAvatar: FALLBACK_AVATAR,
-    project: task.projectName?.trim() || `Project #${task.projectId}`,
+    project: String(task.projectId),
+    projectDisplayName: task.projectName?.trim() || undefined,
     dueDate: task.dueDate ?? "",
     createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
     tags: [],
   };
 }
@@ -373,7 +370,7 @@ export async function getTasksByList(listId: number): Promise<Task[]> {
     requestJson<TaskResponse[]>("GET", `/enflow/tasks/lists/${listId}`, {
       auth: true,
     }),
-    buildStatusByIdForListIds([listId]),
+    buildStatusMetaByIdForListIds([listId]),
   ]);
 
   return (tasks ?? []).map((t) => taskResponseToTask(t, statusById));
@@ -398,6 +395,56 @@ export async function listTaskResponsesByList(
   });
 }
 
+/** Phạm vi tải task thô + bản map UI cho màn báo cáo (tránh gọi API hai lần). */
+export type ReportTaskScope =
+  | { kind: "project"; projectId: number }
+  | { kind: "list"; listId: number }
+  | { kind: "workspace" };
+
+export async function fetchTasksForReports(
+  scope: ReportTaskScope,
+): Promise<{ raw: TaskResponse[]; mapped: Task[] }> {
+  let raw: TaskResponse[];
+  if (scope.kind === "list") {
+    raw = await requestJson<TaskResponse[]>(
+      "GET",
+      `/enflow/tasks/lists/${scope.listId}`,
+      { auth: true },
+    );
+  } else if (scope.kind === "project") {
+    raw = await requestJson<TaskResponse[]>(
+      "GET",
+      `/enflow/tasks/projects/${scope.projectId}`,
+      { auth: true },
+    );
+  } else {
+    const wsId = getWorkspaceSnapshot().workspaceId;
+    if (!wsId) {
+      return { raw: [], mapped: [] };
+    }
+    const projects = await getProjectsByWorkspace(wsId).catch(() => []);
+    const chunks = await Promise.all(
+      projects.map(async (p) => {
+        try {
+          return await requestJson<TaskResponse[]>(
+            "GET",
+            `/enflow/tasks/projects/${p.idProject}`,
+            { auth: true },
+          );
+        } catch {
+          return [];
+        }
+      }),
+    );
+    raw = chunks.flat();
+  }
+
+  const list = raw ?? [];
+  const statusById = await buildStatusMetaByIdForListIds(list.map((t) => t.listId));
+  const mapped = list.map((t) => taskResponseToTask(t, statusById));
+  return { raw: list, mapped };
+}
+
 export async function listTasks(projectId?: number): Promise<Task[]> {
   if (projectId !== undefined && Number.isFinite(projectId)) {
     const tasks = await requestJson<TaskResponse[]>(
@@ -407,7 +454,7 @@ export async function listTasks(projectId?: number): Promise<Task[]> {
         auth: true,
       },
     );
-    const statusById = await buildStatusByIdForListIds(
+    const statusById = await buildStatusMetaByIdForListIds(
       (tasks ?? []).map((t) => t.listId),
     );
     return (tasks ?? []).map((t) => taskResponseToTask(t, statusById));
@@ -435,7 +482,7 @@ export async function listTasks(projectId?: number): Promise<Task[]> {
   );
 
   const flatTasks = tasksByProject.flat();
-  const statusById = await buildStatusByIdForListIds(
+  const statusById = await buildStatusMetaByIdForListIds(
     flatTasks.map((t) => t.listId),
   );
   return flatTasks.map((t) => taskResponseToTask(t, statusById));

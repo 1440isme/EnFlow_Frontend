@@ -1,6 +1,8 @@
 import type { TaskResponse, TaskAssigneeResponse, TaskTagResponse } from '@/lib/task-api';
 import type { Task } from '@/types/task';
 import type { DashboardTask } from '@/types/dashboard-task';
+import type { StatusesResponse } from '@/types/api';
+import { formatStatusLabel, normalizeBackendStatusGroupKey } from '@/lib/task-status-ui';
 
 export const fallbackAvatar = '/placeholder.svg';
 
@@ -12,24 +14,35 @@ export const mapBackendPriority = (priority: TaskResponse['priority']): Task['pr
 export const mapFrontendPriorityToBackend = (priority: Task['priority']): TaskResponse['priority'] =>
   priority === 'medium' ? 'normal' : priority;
 
-export const mapBackendStatusGroup = (statusGroup: string): Task['status'] => {
-  const g = String(statusGroup ?? '')
+/** Fallback khi chưa có hàng status từ API (subtask / tải lỗi). */
+export function inferStatusGroupFromDates(
+  startDate: string | null | undefined,
+  completedAt: string | null | undefined,
+): string {
+  if (completedAt) return 'completed';
+  if (startDate && new Date(startDate).getTime() <= Date.now()) return 'in_progress';
+  return 'to_do';
+}
+
+function fallbackLabelFromGroup(group: string): string {
+  const g = String(group ?? '')
     .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '_')
-    .replace(/-/g, '_');
-  if (g === 'completed') return 'done';
-  if (['in_progress', 'review', 'testing', 'deploy'].includes(g)) return 'in-progress';
-  return 'todo';
-};
+    .replace(/_/g, ' ');
+  if (!g) return '—';
+  return g.replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
 
 export function inferTaskStatusFromDates(
   startDate: string | null | undefined,
   completedAt: string | null | undefined,
 ): Task['status'] {
-  if (completedAt) return 'done';
-  if (startDate && new Date(startDate).getTime() <= Date.now()) return 'in-progress';
-  return 'todo';
+  const g = inferStatusGroupFromDates(startDate, completedAt);
+  return fallbackLabelFromGroup(g);
+}
+
+/** Dùng khi đổi status: có nhóm backend `completed` → ghi completedAt. */
+export function isBackendStatusGroupCompleted(statusGroup: string): boolean {
+  return normalizeBackendStatusGroupKey(statusGroup) === 'completed';
 }
 
 export const pickPrimaryAssignee = (
@@ -46,16 +59,24 @@ export function toDashboardTask(
   currentUserId: number,
   currentUserName: string,
   taskTags: TaskTagResponse[],
+  statusRow?: StatusesResponse | null,
 ): DashboardTask {
   const primaryAssignee = pickPrimaryAssignee(assignees, currentUserId);
   const assigneeName = primaryAssignee?.fullName?.trim() || currentUserName || 'User';
+
+  const group = statusRow
+    ? String(statusRow.statusGroup ?? '')
+    : inferStatusGroupFromDates(task.startDate, task.completedAt);
+  const statusLabel = statusRow ? formatStatusLabel(statusRow) : fallbackLabelFromGroup(group);
 
   return {
     id: String(task.taskId),
     taskId: task.taskId,
     title: task.title,
     description: task.description ?? '',
-    status: inferTaskStatusFromDates(task.startDate, task.completedAt),
+    status: statusLabel,
+    statusGroup: group,
+    statusColor: statusRow?.color ?? null,
     priority: mapBackendPriority(task.priority),
     projectId: task.projectId,
     listId: task.listId,

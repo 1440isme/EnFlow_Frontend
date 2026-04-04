@@ -4,11 +4,11 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  BarChart2,
   Building2,
   Check,
   CheckSquare,
   ChevronDown,
-  Copy,
   Folder,
   PlusCircle,
   Settings,
@@ -19,7 +19,12 @@ import {
   listWorkspaces,
   listWorkspacesByOwner,
 } from '@/lib/workspace-api';
-import { getWorkspaceSnapshot, saveWorkspaceSnapshot, workspaceResponseToSnapshot } from '@/lib/workspace-storage';
+import {
+  DEFAULT_WORKSPACE,
+  getWorkspaceSnapshot,
+  saveWorkspaceSnapshot,
+  workspaceResponseToSnapshot,
+} from '@/lib/workspace-storage';
 import type { WorkspaceSnapshot } from '@/types/workspace';
 import type { WorkspaceResponse } from '@/types/api';
 import {
@@ -46,9 +51,8 @@ async function fetchWorkspacesForSwitcher(): Promise<WorkspaceResponse[]> {
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const [workspace, setWorkspace] = useState<WorkspaceSnapshot>(() => ({
-    ...getWorkspaceSnapshot(),
-  }));
+  /** Cùng giá trị SSR + lần render đầu trên client — tránh lệch tên workspace (localStorage chỉ đọc sau mount). */
+  const [workspace, setWorkspace] = useState<WorkspaceSnapshot>(() => ({ ...DEFAULT_WORKSPACE }));
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [workspaceOptions, setWorkspaceOptions] = useState<WorkspaceResponse[]>([]);
@@ -80,6 +84,7 @@ export default function Sidebar() {
   const menuItems = [
     { icon: CheckSquare, label: 'My Task', path: '/app/my-tasks' },
     { icon: Folder, label: 'Project', path: '/app/projects' },
+    { icon: BarChart2, label: 'Báo cáo', path: '/app/reports' },
     { icon: Users, label: 'Team', path: '/app/team' },
   ];
 
@@ -87,11 +92,10 @@ export default function Sidebar() {
     if (path === '/app/projects') {
       return pathname.startsWith('/app/projects');
     }
+    if (path === '/app/reports') {
+      return pathname.startsWith('/app/reports');
+    }
     return pathname === path;
-  };
-
-  const copyWorkspaceKey = () => {
-    void navigator.clipboard.writeText(workspace.workspaceKey);
   };
 
   const selectWorkspace = (w: WorkspaceResponse) => {
@@ -138,9 +142,6 @@ export default function Sidebar() {
             className="z-[200] w-56"
             onCloseAutoFocus={(e) => e.preventDefault()}
           >
-            <DropdownMenuLabel className="font-normal text-xs text-gray-500">
-              {workspace.workspaceId != null ? `ID: ${workspace.workspaceId}` : 'Chưa đồng bộ API'}
-            </DropdownMenuLabel>
             <DropdownMenuItem
               onSelect={() => {
                 setSettingsOpen(true);
@@ -148,10 +149,6 @@ export default function Sidebar() {
             >
               <Settings className="mr-2 h-4 w-4" />
               Cài đặt workspace
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void copyWorkspaceKey()}>
-              <Copy className="mr-2 h-4 w-4" />
-              Sao chép mã workspace
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-xs text-gray-500 font-normal px-2 py-1.5">

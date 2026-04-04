@@ -5,7 +5,8 @@ import {
   saveWorkspaceSnapshot,
   workspaceResponseToSnapshot,
 } from '@/lib/workspace-storage';
-import { listWorkspacesByOwner } from '@/lib/workspace-api';
+import { listWorkspaces, listWorkspacesByOwner } from '@/lib/workspace-api';
+import { personalWorkspaceKey } from '@/lib/workspace-keys';
 import type { AuthResponse } from '@/types/api';
 
 const USER_ID_KEY = 'enflow_user_id';
@@ -25,14 +26,23 @@ export function getStoredUserId(): number | null {
 
 export async function syncWorkspaceFromApi(userId: number): Promise<void> {
   try {
-    const list = await listWorkspacesByOwner(userId);
+    const list = await listWorkspaces();
     const personal =
-      list.find((w) => w.workspaceKey === `personal-${userId}`) ?? list[0];
+      list.find((w) => w.workspaceKey === personalWorkspaceKey(userId)) ?? list[0];
     if (personal) {
       saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
     }
   } catch {
-    /* giữ snapshot local nếu offline / lỗi API */
+    try {
+      const list = await listWorkspacesByOwner(userId);
+      const personal =
+        list.find((w) => w.workspaceKey === personalWorkspaceKey(userId)) ?? list[0];
+      if (personal) {
+        saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+      }
+    } catch {
+      /* giữ snapshot local nếu offline / lỗi API */
+    }
   }
 }
 

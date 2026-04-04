@@ -21,22 +21,33 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Mail } from 'lucide-react';
-import { ApiError } from '@/lib/http';
-import { getCurrentUser, getUserById } from '@/lib/user-api';
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Mail, UserPlus } from 'lucide-react';
+import { ApiError } from '@/lib/http';
+import { getCurrentUser, getUserById, lookupUserByEmail } from '@/lib/user-api';
+import {
+  addWorkspaceMember,
   listWorkspaceMembers,
   removeWorkspaceMember,
   updateWorkspaceMember,
 } from '@/lib/workspace-api';
 import {
-  canManageWorkspaceMembers,
+  canManageTeamMembers,
   formatWorkspaceRole,
   isOwnerRole,
 } from '@/lib/workspace-member-utils';
 import { getWorkspaceSnapshot } from '@/lib/workspace-storage';
 import { profileInitials } from '@/lib/user-profile';
-import type { UserResponse, WorkspaceMemberResponse } from '@/types/api';
+import type { UserPublicLookupResponse, UserResponse, WorkspaceMemberResponse } from '@/types/api';
 
 type DisplayMember = {
   userId: number;
@@ -65,6 +76,10 @@ async function resolveUser(
   }
 }
 
+function memberOrGuestSelectValue(roleKey: string): 'member' | 'guest' {
+  return roleKey.toLowerCase() === 'guest' ? 'guest' : 'member';
+}
+
 export default function TeamPage() {
   const [rows, setRows] = useState<DisplayMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,7 +90,16 @@ export default function TeamPage() {
   const [removeTarget, setRemoveTarget] = useState<DisplayMember | null>(null);
   const [workspaceId, setWorkspaceId] = useState<number | null>(null);
 
-  const canManage = canManageWorkspaceMembers(myRoleKey);
+  const [addOpen, setAddOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteLookup, setInviteLookup] = useState<UserPublicLookupResponse | null>(null);
+  const [inviteLookupLoading, setInviteLookupLoading] = useState(false);
+  const [inviteLookupError, setInviteLookupError] = useState<string | null>(null);
+  const [inviteRole, setInviteRole] = useState<'member' | 'guest'>('member');
+  const [inviteSaving, setInviteSaving] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+
+  const canManage = canManageTeamMembers(myRoleKey);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -235,14 +259,77 @@ export default function TeamPage() {
     }
   };
 
+  const handleInviteLookup = async () => {
+    setInviteLookupError(null);
+    setInviteError(null);
+    setInviteLookup(null);
+    const email = inviteEmail.trim();
+    if (!email) {
+      setInviteLookupError('Nhập email.');
+      return;
+    }
+    if (!email.includes('@')) {
+      setInviteLookupError('Email không hợp lệ.');
+      return;
+    }
+    setInviteLookupLoading(true);
+    try {
+      const found = await lookupUserByEmail(email);
+      setInviteLookup(found);
+    } catch (e) {
+      setInviteLookupError(
+        e instanceof ApiError ? e.message : 'Không tra cứu được người dùng.'
+      );
+    } finally {
+      setInviteLookupLoading(false);
+    }
+  };
+
+  const handleAddMember = async () => {
+    if (workspaceId == null || inviteLookup == null) return;
+    setInviteError(null);
+    setInviteSaving(true);
+    try {
+      await addWorkspaceMember(workspaceId, {
+        userId: inviteLookup.userId,
+        roleInWorkspace: inviteRole,
+      });
+      setAddOpen(false);
+      setInviteEmail('');
+      setInviteLookup(null);
+      setInviteRole('member');
+      await load();
+    } catch (e) {
+      setInviteError(e instanceof ApiError ? e.message : 'Không thêm được thành viên.');
+    } finally {
+      setInviteSaving(false);
+    }
+  };
+
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold text-gray-900 mb-2">Team</h1>
-        <p className="text-gray-600">
-          Thành viên workspace hiện tại. Chủ sở hữu / Admin có thể đổi vai trò hoặc gỡ thành viên (trừ
-          chủ sở hữu).
-        </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold text-gray-900 mb-2">Team</h1>
+
+        </div>
+        {canManage && workspaceId != null ? (
+          <Button
+            type="button"
+            className="shrink-0 bg-[#004ba8] hover:bg-[#003d8a]"
+            onClick={() => {
+              setAddOpen(true);
+              setInviteEmail('');
+              setInviteLookup(null);
+              setInviteLookupError(null);
+              setInviteError(null);
+              setInviteRole('member');
+            }}
+          >
+            <UserPlus className="w-4 h-4 mr-2" />
+            Thêm thành viên
+          </Button>
+        ) : null}
       </div>
 
       {error ? (
@@ -293,7 +380,7 @@ export default function TeamPage() {
                       {showActions ? (
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                           <Select
-                            value={member.roleKey}
+                            value={memberOrGuestSelectValue(member.roleKey)}
                             onValueChange={(v) => void handleRoleChange(member.userId, v)}
                             disabled={busy}
                           >
@@ -301,7 +388,6 @@ export default function TeamPage() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="admin">Admin</SelectItem>
                               <SelectItem value="member">Member</SelectItem>
                               <SelectItem value="guest">Guest</SelectItem>
                             </SelectContent>
@@ -333,6 +419,124 @@ export default function TeamPage() {
           })}
         </div>
       )}
+
+      <Dialog
+        open={addOpen}
+        onOpenChange={(o) => {
+          setAddOpen(o);
+          if (!o) {
+            setInviteEmail('');
+            setInviteLookup(null);
+            setInviteLookupError(null);
+            setInviteError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Thêm thành viên</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            Tra cứu người dùng theo email, chọn Member hoặc Guest rồi xác nhận.
+          </p>
+          {inviteError ? (
+            <Alert variant="destructive">
+              <AlertDescription>{inviteError}</AlertDescription>
+            </Alert>
+          ) : null}
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="team-invite-email">Email</Label>
+              <Input
+                id="team-invite-email"
+                type="email"
+                autoComplete="off"
+                value={inviteEmail}
+                onChange={(e) => {
+                  setInviteEmail(e.target.value);
+                  setInviteLookup(null);
+                  setInviteLookupError(null);
+                }}
+                placeholder="user@example.com"
+                disabled={inviteSaving || inviteLookupLoading}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void handleInviteLookup();
+                  }
+                }}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full sm:w-auto"
+              onClick={() => void handleInviteLookup()}
+              disabled={inviteSaving || inviteLookupLoading}
+            >
+              {inviteLookupLoading ? 'Đang tra…' : 'Tra cứu'}
+            </Button>
+            {inviteLookupError ? (
+              <Alert variant="destructive">
+                <AlertDescription>{inviteLookupError}</AlertDescription>
+              </Alert>
+            ) : null}
+            {inviteLookup ? (
+              <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-4 space-y-4">
+                <div className="flex items-center gap-3">
+                  {inviteLookup.avatarUrl ? (
+                    <img
+                      src={inviteLookup.avatarUrl}
+                      alt=""
+                      className="h-12 w-12 rounded-full object-cover shrink-0"
+                    />
+                  ) : (
+                    <div className="h-12 w-12 rounded-full bg-[#004ba8] flex items-center justify-center text-white text-sm font-semibold shrink-0">
+                      {profileInitials({
+                        fullName: inviteLookup.fullName,
+                        email: inviteLookup.email,
+                      })}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900 truncate">{inviteLookup.fullName}</p>
+                    <p className="text-sm text-gray-600 truncate">{inviteLookup.email}</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Vai trò</Label>
+                  <Select
+                    value={inviteRole}
+                    onValueChange={(v) => setInviteRole(v as 'member' | 'guest')}
+                    disabled={inviteSaving}
+                  >
+                    <SelectTrigger className="bg-input-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="member">Member</SelectItem>
+                      <SelectItem value="guest">Guest</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              className="bg-[#004ba8] hover:bg-[#003d8a]"
+              disabled={inviteLookup == null || inviteSaving}
+              onClick={() => void handleAddMember()}
+            >
+              {inviteSaving ? 'Đang thêm…' : 'Thêm vào workspace'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={removeTarget != null} onOpenChange={(o) => !o && setRemoveTarget(null)}>
         <AlertDialogContent>

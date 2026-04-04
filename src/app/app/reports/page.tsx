@@ -1,5 +1,5 @@
-import { redirect } from 'next/navigation';
+import WorkspaceReportsPage from '@/views/WorkspaceReportsPage';
 
 export default function Page() {
-  redirect('/app/projects');
+  return <WorkspaceReportsPage />;
 }

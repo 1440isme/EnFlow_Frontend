@@ -200,9 +200,7 @@ export default function AccountPage() {
         <TabsContent value="profile" className="mt-6">
           <Card className="p-6">
             <h2 className="font-semibold text-gray-900 mb-4">Thông tin cá nhân</h2>
-            <p className="text-sm text-gray-600 mb-6">
-              Đồng bộ với API <code className="text-xs bg-gray-100 px-1 rounded">GET/PUT /enflow/users/me</code>.
-            </p>
+
             {loadingProfile ? (
               <p className="text-sm text-gray-500">Đang tải hồ sơ…</p>
             ) : null}

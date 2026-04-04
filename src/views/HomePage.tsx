@@ -70,9 +70,7 @@ export default function HomePage() {
                 Bắt đầu ngay
               </Button>
             </Link>
-            <Button variant="outline" className="px-8 py-6 text-lg">
-              Xem demo
-            </Button>
+
           </div>
         </div>
       </section>

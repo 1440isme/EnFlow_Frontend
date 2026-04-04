@@ -36,7 +36,7 @@ type PendingInvite = {
   fullName: string;
   email: string;
   avatarUrl: string | null;
-  role: 'admin' | 'member' | 'guest';
+  role: 'member' | 'guest';
 };
 
 type Props = {
@@ -57,7 +57,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
   const [inviteLookup, setInviteLookup] = useState<UserPublicLookupResponse | null>(null);
   const [inviteLookupLoading, setInviteLookupLoading] = useState(false);
   const [inviteLookupError, setInviteLookupError] = useState<string | null>(null);
-  const [inviteRole, setInviteRole] = useState<'admin' | 'member' | 'guest'>('member');
+  const [inviteRole, setInviteRole] = useState<'member' | 'guest'>('member');
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const [inviteListError, setInviteListError] = useState<string | null>(null);
 
@@ -205,7 +205,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
               onChange={(e) => setWorkspaceKey(e.target.value)}
               className="bg-input-background font-mono text-sm"
               disabled={saving}
-              placeholder="Để trống nếu backend tự sinh"
+              placeholder="Viết tắt tên workspace"
             />
           </div>
           <div className="space-y-2">
@@ -312,7 +312,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
                     <Select
                       value={inviteRole}
                       onValueChange={(v) =>
-                        setInviteRole(v as 'admin' | 'member' | 'guest')
+                        setInviteRole(v as 'member' | 'guest')
                       }
                       disabled={saving}
                     >
@@ -320,7 +320,6 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="admin">Admin</SelectItem>
                         <SelectItem value="member">Member</SelectItem>
                         <SelectItem value="guest">Guest</SelectItem>
                       </SelectContent>

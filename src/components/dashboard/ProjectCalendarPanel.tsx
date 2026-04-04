@@ -20,12 +20,12 @@ import {
 } from '@/lib/task-api';
 import { getCurrentUser, getUserById } from '@/lib/user-api';
 import { taskAssigneeRowsToDisplay } from '@/lib/task-assignee-utils';
-import { mapBackendStatusGroup, toDashboardTask } from '@/lib/dashboard-task-mapper';
+import { toDashboardTask } from '@/lib/dashboard-task-mapper';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/components/ui/utils';
-import { STATUS_GROUP_ORDER, formatTaskStatusLabel, sortStatuses } from '@/lib/task-status-ui';
+import { formatStatusLabel, sortStatuses } from '@/lib/task-status-ui';
 import { formatTaskPriorityLabel, TASK_PRIORITY_DISPLAY_ORDER } from '@/lib/task-priority-ui';
 import {
   type DuePreset,
@@ -97,7 +97,7 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<{ userId: number; fullName: string; avatarUrl: string | null } | null>(null);
 
-  const [filterStatusIds, setFilterStatusIds] = useState<Task['status'][]>([]);
+  const [filterTaskStatusIds, setFilterTaskStatusIds] = useState<number[]>([]);
   const [filterListIds, setFilterListIds] = useState<number[]>([]);
   const [filterTagNames, setFilterTagNames] = useState<string[]>([]);
   const [filterPriorities, setFilterPriorities] = useState<Task['priority'][]>([]);
@@ -157,14 +157,19 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
       const bundles = await Promise.all(
         (rawTasks || []).map(async (t: TaskResponse) => {
           const [tags, assignees] = await Promise.all([getTaskTags(t.taskId).catch(() => []), getTaskAssignees(t.taskId).catch(() => [])]);
-          const rowBase = toDashboardTask(t, assignees, me.userId, me.fullName?.trim() || me.username || 'User', tags);
-
           const listStatuses = byList[t.listId] ?? [];
-          const matched = listStatuses.find((s) => s.statusId === t.statusId);
-          const status = matched ? mapBackendStatusGroup(String(matched.statusGroup ?? '')) : rowBase.status;
+          const matched = listStatuses.find((s) => s.statusId === t.statusId) ?? null;
+          const rowBase = toDashboardTask(
+            t,
+            assignees,
+            me.userId,
+            me.fullName?.trim() || me.username || 'User',
+            tags,
+            matched,
+          );
 
           return {
-            row: { ...rowBase, status },
+            row: rowBase,
             assignees,
           };
         }),
@@ -221,7 +226,7 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
         assignedToMeOnly,
         currentUser,
         assigneeUserIdsByTask,
-        filterStatusIds,
+        filterTaskStatusIds,
         filterListIds,
         filterPriorities,
         filterAssigneeIds,
@@ -235,7 +240,7 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
       assignedToMeOnly,
       currentUser,
       assigneeUserIdsByTask,
-      filterStatusIds,
+      filterTaskStatusIds,
       filterListIds,
       filterPriorities,
       filterAssigneeIds,
@@ -272,7 +277,7 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
 
   const filterActiveCount = useMemo(() => {
     return (
-      filterStatusIds.length +
+      filterTaskStatusIds.length +
       filterListIds.length +
       filterTagNames.length +
       filterPriorities.length +
@@ -288,23 +293,19 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
     filterListIds.length,
     filterPriorities.length,
     filterReporterIds.length,
-    filterStatusIds.length,
+    filterTaskStatusIds.length,
     filterTagNames.length,
   ]);
 
   const statusFilterOptions = useMemo(() => {
-    const seen = new Set<Task['status']>();
+    const uniq = new Map<number, StatusesResponse>();
     statuses.forEach((s) => {
-      seen.add(mapBackendStatusGroup(String(s.statusGroup ?? '')));
+      if (!uniq.has(s.statusId)) uniq.set(s.statusId, s);
     });
-    tasks.forEach((t) => {
-      seen.add(t.status);
-    });
-    return STATUS_GROUP_ORDER.filter((status) => seen.has(status)).map((status) => ({
-      value: status,
-      label: formatTaskStatusLabel(status),
-    }));
-  }, [statuses, tasks]);
+    return [...uniq.values()]
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      .map((s) => ({ value: s.statusId, label: formatStatusLabel(s) }));
+  }, [statuses]);
 
   const listFilterOptions = useMemo(() => {
     return [...lists].sort((a, b) => a.name.localeCompare(b.name)).map((list) => ({ id: list.listProjectId, name: list.name }));
@@ -324,7 +325,7 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
   }, [tasks, currentUser]);
 
   const clearAllFilters = () => {
-    setFilterStatusIds([]);
+    setFilterTaskStatusIds([]);
     setFilterListIds([]);
     setFilterTagNames([]);
     setFilterPriorities([]);
@@ -417,9 +418,11 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
                       statusFilterOptions.map((s) => (
                         <label key={s.value} className="flex cursor-pointer items-start gap-2 text-slate-800">
                           <Checkbox
-                            checked={filterStatusIds.includes(s.value)}
+                            checked={filterTaskStatusIds.includes(s.value)}
                             onCheckedChange={() =>
-                              setFilterStatusIds((prev) => (prev.includes(s.value) ? prev.filter((x) => x !== s.value) : [...prev, s.value]))
+                              setFilterTaskStatusIds((prev) =>
+                                prev.includes(s.value) ? prev.filter((x) => x !== s.value) : [...prev, s.value],
+                              )
                             }
                           />
                           <span className="leading-tight">{s.label}</span>

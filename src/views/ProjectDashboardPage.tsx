@@ -13,8 +13,9 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, LayoutGrid, List, Columns, Calendar, Folder } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
-import { getProjectListsStatuses } from '@/lib/project-api';
+import { getProjectById, getProjectListsStatuses } from '@/lib/project-api';
 import type { ProjectListResponse } from '@/types/api';
+import { getWorkspaceSnapshot } from '@/lib/workspace-storage';
 
 function ProjectDashboardContent() {
   const params = useParams();
@@ -63,6 +64,32 @@ function ProjectDashboardContent() {
   useEffect(() => {
     void loadProjectLists();
   }, [loadProjectLists]);
+
+  /** Đổi workspace ở sidebar: nếu project hiện tại không thuộc workspace đó → về danh sách project. */
+  useEffect(() => {
+    if (!Number.isFinite(projectIdNumber) || projectIdNumber <= 0) return;
+
+    const verify = async () => {
+      const snapWs = getWorkspaceSnapshot().workspaceId;
+      if (snapWs == null) return;
+      try {
+        const p = await getProjectById(projectIdNumber);
+        if (p.workspaceId !== snapWs) {
+          router.replace('/app/projects');
+        }
+      } catch {
+        router.replace('/app/projects');
+      }
+    };
+
+    const onWorkspaceChanged = () => {
+      void verify();
+    };
+
+    window.addEventListener('enflow-workspace-changed', onWorkspaceChanged);
+    void verify();
+    return () => window.removeEventListener('enflow-workspace-changed', onWorkspaceChanged);
+  }, [projectIdNumber, router]);
 
   useEffect(() => {
     const handleListsChanged = () => {
@@ -160,9 +187,17 @@ function ProjectDashboardContent() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-8">
-          <OverviewTab projectId={projectIdNumber} listId={selectedListId} />
+          <OverviewTab
+            projectId={projectIdNumber}
+            listId={selectedListId}
+            listCount={lists.length}
+          />
           <Separator />
-          <ProjectReportsSection projectScoped projectId={projectIdNumber} listId={selectedListId} />
+          <ProjectReportsSection
+            projectId={projectIdNumber}
+            listId={selectedListId}
+            listCount={lists.length}
+          />
         </TabsContent>
 
         <TabsContent value="list">

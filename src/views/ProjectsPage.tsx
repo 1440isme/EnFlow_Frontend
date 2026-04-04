@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Project, Task } from '@/types/task';
 import { Card } from '@/components/ui/card';
@@ -24,11 +24,46 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Folder, TrendingUp, Plus, MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import { listTasks } from '@/lib/task-api';
-import { getProjectsByWorkspace, createProject, updateProject, deleteProject } from '@/lib/project-api';
+import {
+  getProjectsByWorkspace,
+  createProject,
+  updateProject,
+  deleteProject,
+  type ProjectResponse,
+} from '@/lib/project-api';
+import { isTaskCompleted } from '@/lib/overview-task-utils';
 import { getWorkspaceSnapshot, saveWorkspaceSnapshot, workspaceResponseToSnapshot } from '@/lib/workspace-storage';
 import { getStoredUserId } from '@/lib/auth-session';
-import { listWorkspacesByOwner } from '@/lib/workspace-api';
+import { listWorkspaces, listWorkspacesByOwner } from '@/lib/workspace-api';
+import { personalWorkspaceKey } from '@/lib/workspace-keys';
 
+async function resolveWorkspaceId(): Promise<number | null> {
+  let wsId = getWorkspaceSnapshot().workspaceId;
+  if (wsId) return wsId;
+  const userId = getStoredUserId();
+  if (!userId) return null;
+  try {
+    const list = await listWorkspaces();
+    const personal = list.find((w) => w.workspaceKey === personalWorkspaceKey(userId)) ?? list[0];
+    if (personal) {
+      saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+      return personal.workspaceId;
+    }
+  } catch {
+    /* fallback */
+  }
+  try {
+    const list = await listWorkspacesByOwner(userId);
+    const personal = list.find((w) => w.workspaceKey === personalWorkspaceKey(userId)) ?? list[0];
+    if (personal) {
+      saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+      return personal.workspaceId;
+    }
+  } catch {
+    /* no workspace */
+  }
+  return null;
+}
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -50,50 +85,56 @@ export default function ProjectsPage() {
   const [key, setKey] = useState('');
   const [description, setDescription] = useState('');
 
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<number | null>(() =>
+    typeof window !== 'undefined' ? getWorkspaceSnapshot().workspaceId : null,
+  );
+
   useEffect(() => {
-    let mounted = true;
+    const sync = () => setActiveWorkspaceId(getWorkspaceSnapshot().workspaceId);
+    sync();
+    window.addEventListener('enflow-workspace-changed', sync);
+    return () => window.removeEventListener('enflow-workspace-changed', sync);
+  }, []);
+
+  const loadProjectsData = useCallback(async () => {
     setLoading(true);
     setError(null);
-    
-    // Determine workspace ID directly, rather than waiting for user interaction
-    let wsId = getWorkspaceSnapshot().workspaceId;
-    if (!wsId) {
-       const userId = getStoredUserId();
-       if (userId) {
-         listWorkspacesByOwner(userId).then(list => {
-           const personal = list.find((w) => w.workspaceKey === `personal-${userId}`) ?? list[0];
-           if (personal) {
-              saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
-              wsId = personal.workspaceId;
-           }
-         }).catch(console.error);
-       }
-    }
+    try {
+      let wsId = activeWorkspaceId ?? getWorkspaceSnapshot().workspaceId;
+      if (!wsId) {
+        wsId = await resolveWorkspaceId();
+        if (wsId != null) {
+          setActiveWorkspaceId(wsId);
+        }
+      }
 
-    Promise.all([wsId ? getProjectsByWorkspace(wsId) : Promise.resolve([]), listTasks()])
-      .then(([projects, t]) => {
-        if (!mounted) return;
-        setProjectList((projects as any[]).map(p => ({
-            id: p.idProject.toString(),
-            name: p.name,
-            key: p.projectKey,
-            description: p.description || '',
-            color: '#3b82f6', // fallback color
-            tasksCount: 0
-        })) as any[]);
-        setTasks(t || []);
-      })
-      .catch((err) => {
-        console.error(err);
-        setError(err?.message || 'Failed to load project data.');
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
+      const [projects, t] = await Promise.all([
+        wsId ? getProjectsByWorkspace(wsId) : Promise.resolve([]),
+        listTasks(),
+      ]);
+
+      setProjectList(
+        (projects as ProjectResponse[]).map((p) => ({
+          id: p.idProject.toString(),
+          name: p.name,
+          key: p.projectKey ?? '',
+          description: p.description ?? '',
+          color: '#3b82f6',
+          tasksCount: 0,
+        })),
+      );
+      setTasks(t || []);
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.message || 'Failed to load project data.');
+    } finally {
+      setLoading(false);
+    }
+  }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    void loadProjectsData();
+  }, [loadProjectsData]);
 
   const resetForm = () => {
     setName('');
@@ -129,11 +170,11 @@ export default function ProjectsPage() {
           prev.map((project) =>
             project.id === editingProject.id
               ? {
-                  ...project,
-                  name: updated.name,
-                  key: updated.projectKey ?? project.key,
-                  description: updated.description || '',
-                }
+                ...project,
+                name: updated.name,
+                key: updated.projectKey ?? project.key,
+                description: updated.description || '',
+              }
               : project
           )
         );
@@ -148,7 +189,7 @@ export default function ProjectsPage() {
             throw new Error('Workspace or signed-in user not found. Please sign in again.');
           }
           const list = await listWorkspacesByOwner(userId);
-          const personal = list.find((w) => w.workspaceKey === `personal-${userId}`) ?? list[0];
+          const personal = list.find((w) => w.workspaceKey === personalWorkspaceKey(userId)) ?? list[0];
           if (!personal) {
             throw new Error('No workspace found for this user.');
           }
@@ -169,10 +210,10 @@ export default function ProjectsPage() {
             id: created.idProject.toString(),
             name: created.name,
             key: created.projectKey ?? key.trim().toUpperCase(),
-            description: created.description || '',
+            description: created.description ?? '',
             color: '#3b82f6',
             tasksCount: 0,
-          } as any,
+          },
         ]);
       }
 
@@ -284,7 +325,7 @@ export default function ProjectsPage() {
           {projectList.map((project) => {
             // match tasks by project id (Task.project stores the project id)
             const projectTasks = tasks.filter((t) => t.project === project.id);
-            const completedTasks = projectTasks.filter((t) => t.status === 'completed').length;
+            const completedTasks = projectTasks.filter((t) => isTaskCompleted(t)).length;
             const progress =
               projectTasks.length > 0
                 ? Math.round((completedTasks / projectTasks.length) * 100)
@@ -306,95 +347,79 @@ export default function ProjectsPage() {
                   }
                 }}
               >
-                  <div className="space-y-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="w-12 h-12 rounded-lg flex items-center justify-center"
-                          style={{ backgroundColor: `${project.color}15` }}
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-12 h-12 rounded-lg flex items-center justify-center"
+                        style={{ backgroundColor: `${project.color}15` }}
+                      >
+                        <Folder className="w-6 h-6" style={{ color: project.color }} />
+                      </div>
+                      <span className="text-xs font-semibold tracking-widest text-gray-400 uppercase">
+                        {project.key}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 text-sm text-gray-600">
+                      <TrendingUp className="w-4 h-4" />
+                      {progress}%
+                      <DropdownMenu modal={false}>
+                        <DropdownMenuTrigger
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-accent hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#004ba8]/30 ml-2 flex-shrink-0"
+                          aria-label={`Options for project ${project.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                          }}
                         >
-                          <Folder className="w-6 h-6" style={{ color: project.color }} />
-                        </div>
-                        <span className="text-xs font-semibold tracking-widest text-gray-400 uppercase">
-                          {project.key}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1 text-sm text-gray-600">
-                        <TrendingUp className="w-4 h-4" />
-                        {progress}%
-                        <DropdownMenu modal={false}>
-                          <DropdownMenuTrigger
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-accent hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#004ba8]/30 ml-2 flex-shrink-0"
-                            aria-label={`Options for project ${project.name}`}
-                            onClick={(e) => {
+                          <MoreVertical className="h-4 w-4" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                          <DropdownMenuItem
+                            onSelect={(e) => {
+                              e.preventDefault();
                               e.stopPropagation();
+                              openEditDialog(project);
                             }}
+                            className="cursor-pointer"
                           >
-                            <MoreVertical className="h-4 w-4" />
-                           </DropdownMenuTrigger>
-                           <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                            <DropdownMenuItem
-                              onSelect={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                openEditDialog(project);
-                              }}
-                              className="cursor-pointer"
-                            >
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                openDeleteDialog(project);
-                              }}
-                              className="cursor-pointer text-red-600"
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h3 className="font-semibold text-gray-900 mb-1">{project.name}</h3>
-                      <p className="text-sm text-gray-500 line-clamp-2">
-                        {project.description || 'No description yet.'}
-                      </p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Progress</span>
-                        <span className="font-medium">
-                          {completedTasks}/{projectTasks.length} tasks
-                        </span>
-                      </div>
-                      <Progress value={progress} className="h-2" />
-                    </div>
-
-                    <div className="flex items-center -space-x-2">
-                      {projectTasks.slice(0, 4).map((task, idx) => (
-                        <img
-                          key={`${task.id}-${idx}`}
-                          src={task.assigneeAvatar}
-                          alt={task.assignee}
-                          className="w-8 h-8 rounded-full border-2 border-white"
-                        />
-                      ))}
-                      {projectTasks.length > 4 && (
-                        <div className="w-8 h-8 rounded-full bg-gray-200 border-2 border-white flex items-center justify-center">
-                          <span className="text-xs font-medium text-gray-600">
-                            +{projectTasks.length - 4}
-                          </span>
-                        </div>
-                      )}
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openDeleteDialog(project);
+                            }}
+                            className="cursor-pointer text-red-600"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
+
+                  <div>
+                    <h3 className="font-semibold text-gray-900 mb-1">{project.name}</h3>
+                    <p className="text-sm text-gray-500 line-clamp-2">
+                      {project.description || 'No description yet.'}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Progress</span>
+                      <span className="font-medium">
+                        {completedTasks}/{projectTasks.length} tasks
+                      </span>
+                    </div>
+                    <Progress value={progress} className="h-2" />
+                  </div>
+
+
+                </div>
               </Card>
             );
           })}
