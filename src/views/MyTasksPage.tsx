@@ -1201,7 +1201,7 @@ export default function MyTasksPage() {
                               onDueDateDraftChange={(value) =>
                                 setDueDateDrafts((current) => ({ ...current, [task.id]: value }))
                               }
-                              onDueDateBlur={(value) => {
+                              onDueDateSave={(value) => {
                                 if (value === toDateInputValue(task.dueDate)) return;
                                 void handleTaskDueDateChange(task, value);
                               }}

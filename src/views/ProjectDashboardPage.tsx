@@ -174,7 +174,7 @@ function ProjectDashboardContent() {
         </TabsContent>
 
         <TabsContent value="calendar">
-          <ProjectCalendarPanel scopeLabel={selectedList ? selectedList.name : projectTitle} />
+          <ProjectCalendarPanel listId={selectedListId} scopeLabel={selectedList ? selectedList.name : projectTitle} />
         </TabsContent>
       </Tabs>
     </div>

@@ -83,7 +83,8 @@ export type TaskTableRowProps = {
   onPriorityChange: (task: DashboardTask, priority: Task['priority']) => void;
   dueDateDraft: string;
   onDueDateDraftChange: (value: string) => void;
-  onDueDateBlur: (value: string) => void;
+  /** Gọi khi user chọn ngày (onChange). Không chỉ dựa vào blur — tránh mất thay đổi khi đổi tab trước khi blur. */
+  onDueDateSave: (value: string) => void;
   statusSaving?: boolean;
   prioritySaving?: boolean;
   dueDateSaving?: boolean;
@@ -112,7 +113,7 @@ export function TaskTableRow({
   onPriorityChange,
   dueDateDraft,
   onDueDateDraftChange,
-  onDueDateBlur,
+  onDueDateSave,
   statusSaving,
   prioritySaving,
   dueDateSaving,
@@ -425,8 +426,11 @@ export function TaskTableRow({
               type="date"
               value={dueDateDraft}
               disabled={Boolean(dueDateSaving)}
-              onChange={(event) => onDueDateDraftChange(event.target.value)}
-              onBlur={(event) => onDueDateBlur(event.target.value)}
+              onChange={(event) => {
+                const v = event.target.value;
+                onDueDateDraftChange(v);
+                onDueDateSave(v);
+              }}
               className="h-8 w-[9.75rem] max-w-full shrink-0 border-slate-200 bg-slate-50/90 px-2 text-[11px] leading-none shadow-sm"
             />
             {task.timeEstimateDays != null && task.timeEstimateDays > 0 ? (

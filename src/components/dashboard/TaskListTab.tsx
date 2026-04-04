@@ -1375,7 +1375,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
                                       onPriorityChange={handleTaskPriorityChange}
                                       dueDateDraft={dueDateDrafts[task.id] ?? ''}
                                       onDueDateDraftChange={(value) => setDueDateDrafts((c) => ({ ...c, [task.id]: value }))}
-                                      onDueDateBlur={(value) => {
+                                      onDueDateSave={(value) => {
                                         if (value === toDateInputValue(task.dueDate)) return;
                                         void handleTaskDueDateChange(task, value);
                                       }}
