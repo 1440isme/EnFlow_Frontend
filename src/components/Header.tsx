@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Bell } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { vi } from 'date-fns/locale';
+import { enUS } from 'date-fns/locale';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,7 +31,7 @@ function formatNotifTime(iso: string): string {
   try {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
-    return formatDistanceToNow(d, { addSuffix: true, locale: vi });
+    return formatDistanceToNow(d, { addSuffix: true, locale: enUS });
   } catch {
     return '';
   }
@@ -46,7 +46,7 @@ export default function Header() {
   const [markingAll, setMarkingAll] = useState(false);
   const initials = profileInitials(profile);
   const displayName =
-    profile.fullName.trim() || profile.email || 'Người dùng';
+    profile.fullName.trim() || profile.email || 'User';
 
   const loadNotifications = useCallback(async () => {
     const ws = getWorkspaceSnapshot().workspaceId;
@@ -57,9 +57,9 @@ export default function Header() {
       setFeed(data);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
-        setNotifError('Phiên đăng nhập hết hạn.');
+        setNotifError('Session expired. Sign in again.');
       } else {
-        setNotifError('Không tải được thông báo.');
+        setNotifError('Could not load notifications.');
       }
       setFeed(null);
     } finally {
@@ -139,7 +139,7 @@ export default function Header() {
               <button
                 type="button"
                 className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                aria-label="Thông báo"
+                aria-label="Notifications"
               >
                 <Bell className="w-5 h-5 text-gray-700" />
                 {unread > 0 ? (
@@ -149,7 +149,7 @@ export default function Header() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-80 z-[200]">
               <div className="flex items-center justify-between px-2 py-1.5">
-                <DropdownMenuLabel className="p-0">Thông báo</DropdownMenuLabel>
+                <DropdownMenuLabel className="p-0">Notifications</DropdownMenuLabel>
                 {items.length > 0 ? (
                   <button
                     type="button"
@@ -157,19 +157,19 @@ export default function Header() {
                     disabled={markingAll || unread === 0}
                     onClick={() => void handleMarkAllRead()}
                   >
-                    Đã đọc hết
+                    Mark all read
                   </button>
                 ) : null}
               </div>
               <DropdownMenuSeparator />
               <div className="max-h-96 overflow-y-auto">
                 {notifLoading ? (
-                  <div className="px-3 py-6 text-center text-sm text-gray-500">Đang tải…</div>
+                  <div className="px-3 py-6 text-center text-sm text-gray-500">Loading…</div>
                 ) : notifError ? (
                   <div className="px-3 py-4 text-center text-sm text-red-600">{notifError}</div>
                 ) : items.length === 0 ? (
                   <div className="px-3 py-8 text-center text-sm text-gray-500">
-                    Chưa có thông báo.
+                    No notifications yet.
                   </div>
                 ) : (
                   items.map((n) => (
@@ -232,17 +232,11 @@ export default function Header() {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link href="/app/account">Tài khoản</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled className="opacity-50">
-                Cài đặt (sắp có)
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled className="opacity-50">
-                Trợ giúp (sắp có)
+                <Link href="/app/account">Account</Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout} className="text-red-600 cursor-pointer">
-                Đăng xuất
+                Sign out
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

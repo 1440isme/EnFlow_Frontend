@@ -76,7 +76,7 @@ export default function RenameListDialog({
       await onUpdated?.();
       onOpenChange(false);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Lỗi khi đổi tên list.');
+      setError(e instanceof ApiError ? e.message : 'Could not rename list.');
     } finally {
       setSaving(false);
     }

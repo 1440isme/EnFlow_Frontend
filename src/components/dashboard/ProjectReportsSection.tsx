@@ -35,7 +35,7 @@ export default function ProjectReportsSection({ projectId, listId, listCount }: 
         setMapped(data.mapped);
       } catch (err: unknown) {
         console.error(err);
-        if (mounted) setError(err instanceof Error ? err.message : 'Lỗi khi tải dữ liệu báo cáo');
+        if (mounted) setError(err instanceof Error ? err.message : 'Could not load report data.');
       } finally {
         if (mounted) setLoading(false);
       }
@@ -48,7 +48,7 @@ export default function ProjectReportsSection({ projectId, listId, listCount }: 
   }, [projectId, listId]);
 
   if (loading) {
-    return <Card className="p-6">Đang tải báo cáo...</Card>;
+    return <Card className="p-6">Loading report…</Card>;
   }
 
   if (error) {
@@ -58,7 +58,7 @@ export default function ProjectReportsSection({ projectId, listId, listCount }: 
   return (
     <ReportsDashboard
       variant="project"
-      title="Thống kê & phân tích dự án"
+      title="Project statistics"
       raw={raw}
       mapped={mapped}
       listCount={listCount}

@@ -41,7 +41,7 @@ export async function syncWorkspaceFromApi(userId: number): Promise<void> {
         saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
       }
     } catch {
-      /* giữ snapshot local nếu offline / lỗi API */
+      /* keep local snapshot if offline or API fails */
     }
   }
 }

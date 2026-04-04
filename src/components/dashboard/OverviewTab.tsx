@@ -44,7 +44,7 @@ export default function OverviewTab({ projectId, listId, listCount }: Props) {
       })
       .catch((err) => {
         console.error(err);
-        setError(err?.message || 'Không tải được tổng quan');
+        setError(err?.message || 'Could not load overview.');
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -84,7 +84,7 @@ export default function OverviewTab({ projectId, listId, listCount }: Props) {
   }, [sortedByRecency]);
 
   if (loading) {
-    return <Card className="p-6">Đang tải tổng quan...</Card>;
+    return <Card className="p-6">Loading overview…</Card>;
   }
 
   if (error) {
@@ -96,17 +96,14 @@ export default function OverviewTab({ projectId, listId, listCount }: Props) {
   const completionRate =
     totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-  const scopeLabel = listId ? 'theo list đang chọn' : 'toàn bộ dự án';
-
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-gray-900">Tổng quan nhanh</h2>
-
+        <h2 className="text-lg font-semibold text-gray-900">Quick overview</h2>
       </div>
 
       <Card className="p-6">
-        <h3 className="font-semibold text-gray-900 mb-4">Dự án này</h3>
+        <h3 className="font-semibold text-gray-900 mb-4">This project</h3>
         {projectDetail ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -118,49 +115,49 @@ export default function OverviewTab({ projectId, listId, listCount }: Props) {
               ) : null}
               {projectDetail.archived ? (
                 <span className="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-700">
-                  Đã lưu trữ
+                  Archived
                 </span>
               ) : null}
             </div>
             {projectDetail.description?.trim() ? (
               <p className="text-sm text-gray-600 leading-relaxed">{projectDetail.description}</p>
             ) : (
-              <p className="text-sm text-gray-500 italic">Chưa có mô tả dự án.</p>
+              <p className="text-sm text-gray-500 italic">No project description yet.</p>
             )}
             <div className="pt-3 border-t space-y-2">
               <div className="flex justify-between gap-4 text-sm">
-                <span className="text-gray-600">Tiến độ hoàn thành </span>
+                <span className="text-gray-600">Completion</span>
                 <span className="font-semibold tabular-nums text-gray-900">{completionRate}%</span>
               </div>
               <Progress value={completionRate} className="h-2.5" />
               <p className="text-xs text-gray-500">
-                {completedTasks}/{totalTasks} task đã hoàn thành
-                {totalTasks === 0 ? ' · Chưa có task trong phạm vi này' : ''}
+                {completedTasks}/{totalTasks} tasks completed
+                {totalTasks === 0 ? ' · No tasks in this scope' : ''}
               </p>
             </div>
             {listCount != null ? (
               <div className="pt-2 border-t text-sm flex justify-between gap-4">
-                <span className="text-gray-600">Số danh sách (list)</span>
+                <span className="text-gray-600">Lists</span>
                 <span className="font-medium text-gray-900">{listCount}</span>
               </div>
             ) : null}
           </div>
         ) : (
-          <p className="text-sm text-gray-600">Không tải được thông tin dự án.</p>
+          <p className="text-sm text-gray-600">Could not load project details.</p>
         )}
       </Card>
 
       <Card className="p-6">
-        <h3 className="font-semibold text-gray-900 mb-1">Hoạt động gần đây</h3>
-        <p className="text-sm text-gray-500 mb-4">Cập nhật mới nhất (tối đa 5 task).</p>
+        <h3 className="font-semibold text-gray-900 mb-1">Recent activity</h3>
+        <p className="text-sm text-gray-500 mb-4">Latest updates, up to 5 tasks.</p>
         <div className="divide-y divide-gray-100 rounded-lg border border-gray-100 bg-white">
           {recentEnriched.length === 0 ? (
-            <p className="p-4 text-sm text-gray-600">Chưa có task trong phạm vi này.</p>
+            <p className="p-4 text-sm text-gray-600">No tasks in this scope.</p>
           ) : (
             recentEnriched.map((task) => {
               const label =
                 task.projectDisplayName?.trim() ||
-                (task.project ? `Dự án #${task.project}` : '');
+                (task.project ? `Project #${task.project}` : '');
               const showAssignee = task.assignee.trim().length > 0;
               const statusBadge = statusBadgePresentation(
                 task.statusGroup ?? 'to_do',

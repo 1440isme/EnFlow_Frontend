@@ -35,7 +35,7 @@ export default function DeleteListDialog({
     setError(null);
 
     if (!list) {
-      setError('List không tồn tại.');
+      setError('List does not exist.');
       return;
     }
 
@@ -45,7 +45,7 @@ export default function DeleteListDialog({
       await onDeleted?.();
       onOpenChange(false);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Lỗi khi xóa list.');
+      setError(e instanceof ApiError ? e.message : 'Could not delete list.');
     } finally {
       setDeleting(false);
     }

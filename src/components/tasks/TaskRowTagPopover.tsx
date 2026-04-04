@@ -17,7 +17,7 @@ export type TaskRowTagPopoverProps = {
   workspaceId: number;
   currentTagNames: string[];
   onTagsUpdated: (rows: TaskTagResponse[]) => void;
-  /** stopPropagation trên trigger để không kích hoạt tương tác cha */
+  /** stopPropagation on trigger so parent row does not receive the click */
   className?: string;
 };
 
@@ -105,7 +105,7 @@ export function TaskRowTagPopover({
       await attachTagId(t.tagId);
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : String(e);
-      if (msg.toLowerCase().includes('đã được gắn') || msg.toLowerCase().includes('already')) {
+      if (msg.toLowerCase().includes('already') || msg.toLowerCase().includes('duplicate')) {
         await refreshTaskTagNames();
         setOpen(false);
       } else {

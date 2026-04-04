@@ -441,7 +441,6 @@ export default function ProjectsPage() {
           ) : null}
 
           <div className="space-y-4 py-2">
-            {/* Tên dự án */}
             <div className="space-y-1.5">
               <Label htmlFor="project-name">
                 Project Name <span className="text-red-500">*</span>

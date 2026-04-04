@@ -77,7 +77,7 @@ function normalizeCollection<T>(value: unknown): T[] {
   return value ? ([value] as T[]) : [];
 }
 
-/** Subtask chỉ hiển thị trong task cha (detail), không hiện trên Kanban. */
+/** Subtasks only appear on the parent task detail, not on the board. */
 function isBoardSubtask(task: DashboardTask): boolean {
   return task.taskType === 'subtask' || task.parentTaskId != null;
 }
@@ -86,7 +86,7 @@ function taskBelongsToStatus(
   task: DashboardTask,
   columnStatus: StatusesResponse,
   isListScope: boolean,
-  /** Toàn bộ status đã load (trước khi dedupe cột) — cần để lấy đúng nhóm của task theo statusId */
+  /** All loaded statuses before column dedupe — used to resolve task group by statusId */
   allStatuses: StatusesResponse[],
 ): boolean {
   if (isListScope) {
@@ -262,7 +262,7 @@ function Column({ statusId, title, color, tasks, canDelete, onDelete, onTaskClic
 function AddStatusColumn({ onClick, disabled }: AddStatusColumnProps) {
   return (
     <div className="flex-1 min-w-[300px]">
-      <div className="mb-4 h-[30px]"> {/* 👈 thêm height */}
+      <div className="mb-4 h-[30px]">
         <div className="flex items-center justify-between h-full">
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full " />
@@ -315,7 +315,7 @@ export default function KanbanBoardTab({ listId }: Props) {
 
   const [currentUser, setCurrentUser] = useState<{ userId: number; fullName: string; avatarUrl: string | null } | null>(null);
 
-  // --- Filter states (đồng bộ với tab `List`) ---
+  // --- Filter state (aligned with List tab) ---
   const [filterTaskStatusIds, setFilterTaskStatusIds] = useState<number[]>([]);
   const [filterListIds, setFilterListIds] = useState<number[]>([]);
   const [filterTagNames, setFilterTagNames] = useState<string[]>([]);
@@ -555,7 +555,7 @@ export default function KanbanBoardTab({ listId }: Props) {
   };
 
   if (loading) {
-    return <div className="p-8 text-gray-500">Đang tải status va task tu API...</div>;
+    return <div className="p-8 text-gray-500">Loading board…</div>;
   }
 
   if (error && tasks.length === 0) {
@@ -617,7 +617,7 @@ export default function KanbanBoardTab({ listId }: Props) {
     try {
       await updateTask(Number(taskId), { statusId: actualStatusIdToUse });
     } catch (e) {
-      console.error('Lỗi khi cập nhật status task:', e);
+      console.error('Failed to update task status:', e);
       setTasks(previousTasks);
     }
   };

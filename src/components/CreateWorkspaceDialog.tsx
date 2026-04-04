@@ -83,11 +83,11 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
     setInviteLookup(null);
     const email = inviteEmail.trim();
     if (!email) {
-      setInviteLookupError('Nhập email.');
+      setInviteLookupError('Enter an email address.');
       return;
     }
     if (!email.includes('@')) {
-      setInviteLookupError('Email không hợp lệ.');
+      setInviteLookupError('Invalid email.');
       return;
     }
     setInviteLookupLoading(true);
@@ -96,7 +96,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
       setInviteLookup(found);
     } catch (e) {
       setInviteLookupError(
-        e instanceof ApiError ? e.message : 'Không tra cứu được người dùng.'
+        e instanceof ApiError ? e.message : 'User lookup failed.'
       );
     } finally {
       setInviteLookupLoading(false);
@@ -108,7 +108,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
     setInviteListError(null);
     const norm = inviteLookup.email.trim().toLowerCase();
     if (pendingInvites.some((p) => p.email.toLowerCase() === norm)) {
-      setInviteListError('Email này đã có trong danh sách mời.');
+      setInviteListError('This email is already on the invite list.');
       return;
     }
     setPendingInvites((prev) => [
@@ -134,12 +134,12 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
     setError(null);
     const ownerUserId = getStoredUserId();
     if (ownerUserId == null) {
-      setError('Vui lòng đăng nhập để tạo workspace.');
+      setError('Sign in to create a workspace.');
       return;
     }
     const trimmedName = name.trim();
     if (!trimmedName) {
-      setError('Nhập tên workspace.');
+      setError('Enter a workspace name.');
       return;
     }
     const keyRaw = workspaceKey.trim().replace(/\s+/g, '-').toLowerCase();
@@ -164,7 +164,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
       onCreated?.();
       onOpenChange(false);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Không tạo workspace hoặc thêm thành viên.');
+      setError(e instanceof ApiError ? e.message : 'Could not create workspace or add members.');
     } finally {
       setSaving(false);
     }
@@ -174,11 +174,10 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Tạo workspace mới</DialogTitle>
+          <DialogTitle>New workspace</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-gray-600">
-          Workspace mới gắn với tài khoản của bạn (owner). Có thể mời thêm người sau khi tra cứu email;
-          họ sẽ được thêm ngay sau khi workspace được tạo.
+          You will be the owner. Optionally look up users by email and add them—they are invited when the workspace is created.
         </p>
         {error ? (
           <Alert variant="destructive">
@@ -187,29 +186,29 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
         ) : null}
         <div className="space-y-4 py-2">
           <div className="space-y-2">
-            <Label htmlFor="cw-name">Tên workspace</Label>
+            <Label htmlFor="cw-name">Workspace name</Label>
             <Input
               id="cw-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="bg-input-background"
               disabled={saving}
-              placeholder="Ví dụ: Team Marketing"
+              placeholder="e.g. Marketing"
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cw-key">Mã workspace (tùy chọn)</Label>
+            <Label htmlFor="cw-key">Workspace key</Label>
             <Input
               id="cw-key"
               value={workspaceKey}
               onChange={(e) => setWorkspaceKey(e.target.value)}
               className="bg-input-background font-mono text-sm"
               disabled={saving}
-              placeholder="Viết tắt tên workspace"
+              placeholder="short-key"
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cw-desc">Mô tả</Label>
+            <Label htmlFor="cw-desc">Description</Label>
             <Textarea
               id="cw-desc"
               value={description}
@@ -221,8 +220,8 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
           </div>
           <div className="flex items-center justify-between rounded-lg border border-gray-200 p-4">
             <div>
-              <p className="font-medium text-gray-900">Workspace riêng tư</p>
-              <p className="text-sm text-gray-600">Chỉ thành viên được mời mới truy cập</p>
+              <p className="font-medium text-gray-900">Private workspace</p>
+              <p className="text-sm text-gray-600">Only invited members can access</p>
             </div>
             <Switch checked={isPrivate} onCheckedChange={setIsPrivate} disabled={saving} />
           </div>
@@ -231,10 +230,9 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
 
           <div className="space-y-3">
             <div>
-              <p className="font-medium text-gray-900">Mời thành viên (tùy chọn)</p>
+              <p className="font-medium text-gray-900">Invite members</p>
               <p className="text-sm text-gray-600">
-                Tra cứu theo email, xác nhận tên rồi thêm vào danh sách. Có thể mời nhiều người trước khi
-                tạo workspace.
+                Look up by email, confirm the profile, then add to the list. You can invite multiple people before creating the workspace.
               </p>
             </div>
             {inviteListError ? (
@@ -273,7 +271,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
                 onClick={() => void handleInviteLookup()}
                 disabled={saving || inviteLookupLoading}
               >
-                {inviteLookupLoading ? 'Đang tra…' : 'Tra cứu'}
+                {inviteLookupLoading ? 'Looking up…' : 'Look up'}
               </Button>
             </div>
             {inviteLookupError ? (
@@ -284,7 +282,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
             {inviteLookup ? (
               <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-4 space-y-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Người được mời
+                  Invite
                 </p>
                 <div className="flex gap-3 items-center">
                   {inviteLookup.avatarUrl ? (
@@ -308,7 +306,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
                   <div className="space-y-2 sm:w-40">
-                    <Label>Vai trò</Label>
+                    <Label>Role</Label>
                     <Select
                       value={inviteRole}
                       onValueChange={(v) =>
@@ -332,7 +330,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
                     onClick={handleAddToPendingList}
                     disabled={saving}
                   >
-                    Thêm vào danh sách
+                    Add to list
                   </Button>
                 </div>
               </div>
@@ -357,7 +355,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
                       className="shrink-0 h-8 w-8 text-gray-500"
                       onClick={() => removePending(p.email)}
                       disabled={saving}
-                      aria-label="Xóa khỏi danh sách"
+                      aria-label="Remove from list"
                     >
                       <X className="h-4 w-4" />
                     </Button>
@@ -369,7 +367,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            Hủy
+            Cancel
           </Button>
           <Button
             type="button"
@@ -377,7 +375,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
             onClick={() => void handleCreate()}
             disabled={saving}
           >
-            {saving ? 'Đang tạo…' : 'Tạo workspace'}
+            {saving ? 'Creating…' : 'Create workspace'}
           </Button>
         </DialogFooter>
       </DialogContent>

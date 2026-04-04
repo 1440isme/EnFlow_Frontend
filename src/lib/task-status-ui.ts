@@ -13,7 +13,7 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-/** Chuẩn hoá statusGroup từ API (enum snake_case hoặc display name). */
+/** Normalize backend statusGroup (snake_case enum or display string). */
 export function normalizeBackendStatusGroupKey(raw: string): string {
   return String(raw ?? '')
     .trim()
@@ -22,7 +22,7 @@ export function normalizeBackendStatusGroupKey(raw: string): string {
     .replace(/-/g, '_');
 }
 
-/** 3 nhóm hiển thị: To do (xám) · In progress (xanh dương) · Completed (xanh lá). */
+/** Three UI buckets: todo · in-progress · completed. */
 export type StatusVisualBucket = 'todo' | 'in-progress' | 'completed';
 
 export function statusVisualBucketFromGroup(statusGroup: string): StatusVisualBucket {
@@ -32,7 +32,7 @@ export function statusVisualBucketFromGroup(statusGroup: string): StatusVisualBu
   return 'todo';
 }
 
-/** Badge trên row (dropdown status) — đồng bộ My Tasks + Dashboard. */
+/** Row badge for status dropdown — shared by My Tasks and dashboard. */
 export function statusBadgeTone(statusGroup: string): string {
   const b = statusVisualBucketFromGroup(statusGroup);
   if (b === 'completed') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
@@ -40,7 +40,7 @@ export function statusBadgeTone(statusGroup: string): string {
   return 'bg-slate-50 text-slate-700 border-slate-200';
 }
 
-/** Badge row / detail: ưu tiên màu API, không thì 3 bucket Tailwind. */
+/** Badge: prefer API color, else Tailwind buckets. */
 export function statusBadgePresentation(
   statusGroup: string,
   colorFromApi?: string | null,
@@ -59,7 +59,7 @@ export function statusBadgePresentation(
   return { className: statusBadgeTone(statusGroup) };
 }
 
-/** Dot + label trong menu chọn status. */
+/** Dot + label classes for status menu items (fallback, no API color). */
 export function statusMenuItemStyles(statusGroup: string): { dot: string; label: string } {
   const b = statusVisualBucketFromGroup(statusGroup);
   if (b === 'completed') return { dot: 'bg-emerald-500', label: 'text-emerald-700' };
@@ -86,7 +86,7 @@ export function statusMenuItemPresentation(
   };
 }
 
-/** Dot cạnh tiêu đề section (List dashboard). */
+/** Dot beside section header on List tab. */
 export function sectionStatusDotClass(statusGroup: string): string {
   const b = statusVisualBucketFromGroup(statusGroup);
   if (b === 'completed') return 'bg-emerald-500';
@@ -107,7 +107,7 @@ export function sectionStatusDotPresentation(
   };
 }
 
-/** Màu solid cho chấm tròn header cột Kanban (3 nhóm: todo / in-progress / completed). */
+/** Solid hex for Kanban column header dot when no API color. */
 export function statusGroupHeaderDotHex(statusGroup: string): string {
   const b = statusVisualBucketFromGroup(statusGroup);
   if (b === 'completed') return '#10b981'; // emerald-500
@@ -115,12 +115,12 @@ export function statusGroupHeaderDotHex(statusGroup: string): string {
   return '#94a3b8'; // slate-400
 }
 
-/** Chấm/header cột: hex từ API nếu hợp lệ, không thì theo bucket. */
+/** Column header dot: API hex if valid, else bucket fallback. */
 export function statusAccentHex(statusGroup: string, colorFromApi?: string | null): string {
   return normalizeHexColor(colorFromApi) ?? statusGroupHeaderDotHex(statusGroup);
 }
 
-/** Một hàng status (list/project) — `name` tùy chọn; không có thì format từ `statusGroup`. */
+/** Display label for a status row; optional `name`, else derive from `statusGroup`. */
 export function formatStatusLabel(s: Pick<StatusesResponse, 'statusId' | 'statusGroup'> & { name?: string | null }) {
   const rawName = s.name;
   if (typeof rawName === 'string' && rawName.trim()) return rawName.trim();
@@ -135,10 +135,10 @@ export function sortStatuses(statuses: StatusesResponse[]) {
   });
 }
 
-/** @deprecated Lọc theo status dùng `statusId` + danh sách `StatusesResponse`, không dùng mảng cố định. */
+/** @deprecated Filter by statusId + StatusesResponse list, not a fixed array. */
 export const STATUS_GROUP_ORDER: Task['status'][] = ['todo', 'in-progress', 'completed'];
 
-/** `task.status` là nhãn hiển thị từ API — trả về nguyên văn (đã là tên cột). */
+/** `task.status` is the display label from the API — return as-is. */
 export function formatTaskStatusLabel(status: Task['status']): string {
   const s = String(status ?? '').trim();
   return s || '—';

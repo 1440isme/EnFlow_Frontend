@@ -157,7 +157,7 @@ function initials(name: string) {
 }
 
 function formatDate(value: string | null | undefined) {
-  if (!value) return "Chua co";
+  if (!value) return "None";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("vi-VN", {
@@ -168,7 +168,7 @@ function formatDate(value: string | null | undefined) {
 }
 
 function formatDateTime(value: string | null | undefined) {
-  if (!value) return "Chua co";
+  if (!value) return "None";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("vi-VN", {
@@ -252,7 +252,7 @@ function toBackendDueDate(value: string) {
 }
 
 function formatDays(value: number | null | undefined) {
-  if (value == null) return "Chua co";
+  if (value == null) return "None";
   return `${value} ngay`;
 }
 
@@ -745,7 +745,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       const message =
         err instanceof ApiError
           ? err.message
-          : parseErrorMessage(err) || "Khong tai duoc chi tiet task.";
+          : parseErrorMessage(err) || "Could not load task details.";
       setError(message);
       setTask(null);
       setTaskTags([]);
@@ -810,7 +810,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         const message =
           err instanceof ApiError
             ? err.message
-            : parseErrorMessage(err) || "Khong cap nhat duoc task.";
+            : parseErrorMessage(err) || "Could not update task.";
         setError(message);
       } finally {
         setIsSaving(false);
@@ -836,7 +836,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
               ? (task.completedAt ?? new Date().toISOString())
               : null,
         },
-        "Da cap nhat trang thai task.",
+        "Status updated.",
       );
     },
     [persistTask, statusOptions, task],
@@ -850,7 +850,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
             value as DashboardTask["priority"],
           ),
         },
-        "Da cap nhat priority.",
+        "Priority updated.",
       );
     },
     [persistTask],
@@ -859,14 +859,14 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
   const handleDueDateSave = useCallback(async () => {
     await persistTask(
       { dueDate: toBackendDueDate(dueDateDraft) },
-      "Da cap nhat due date.",
+      "Due date updated.",
     );
   }, [dueDateDraft, persistTask]);
 
   const handleDescriptionSave = useCallback(async () => {
     await persistTask(
       { description: descriptionDraft.trim() || null },
-      "Da cap nhat description.",
+      "Description updated.",
     );
     setIsEditingDescription(false);
   }, [descriptionDraft, persistTask]);
@@ -893,7 +893,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     if (!titleDraft.trim()) return;
     await persistTask(
       { title: titleDraft.trim() },
-      "Da cap nhat tieu de task.",
+      "Title updated.",
     );
   }, [persistTask, titleDraft]);
 
@@ -917,7 +917,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     if (!task) return;
     await persistTask(
       { archived: !task.archived },
-      task.archived ? "Da bo luu tru task." : "Da luu tru task.",
+      task.archived ? "Task unarchived." : "Task archived.",
     );
   }, [persistTask, task]);
 
@@ -938,7 +938,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       const message =
         err instanceof ApiError
           ? err.message
-          : parseErrorMessage(err) || "Khong xoa duoc task.";
+          : parseErrorMessage(err) || "Could not delete task.";
       setError(message);
     } finally {
       setIsDeleting(false);
@@ -959,7 +959,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         const message =
           err instanceof ApiError
             ? err.message
-            : parseErrorMessage(err) || "Khong cap nhat duoc subtask.";
+            : parseErrorMessage(err) || "Could not update subtask.";
         setError(message);
       } finally {
         setSubtaskBusyId(null);
@@ -983,7 +983,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         const message =
           err instanceof ApiError
             ? err.message
-            : parseErrorMessage(err) || "Khong them duoc assignee cho subtask.";
+            : parseErrorMessage(err) || "Could not add subtask assignee.";
         setError(message);
       } finally {
         setSubtaskBusyId(null);
@@ -1004,7 +1004,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         const message =
           err instanceof ApiError
             ? err.message
-            : parseErrorMessage(err) || "Khong xoa duoc assignee cua subtask.";
+            : parseErrorMessage(err) || "Could not remove subtask assignee.";
         setError(message);
       } finally {
         setSubtaskBusyId(null);
@@ -1025,12 +1025,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
           isPrimary: isFirstAssignee,
         });
         await refreshTaskAssignees(task, viewer);
-        setSaveMessage("Da them assignee.");
+        setSaveMessage("Assignee added.");
       } catch (err) {
         const message =
           err instanceof ApiError
             ? err.message
-            : parseErrorMessage(err) || "Khong them duoc assignee.";
+            : parseErrorMessage(err) || "Could not add assignee.";
         setError(message);
       } finally {
         setAssigneeBusy(false);
@@ -1047,12 +1047,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       try {
         await removeTaskAssignee(task.taskId, userId);
         await refreshTaskAssignees(task, viewer);
-        setSaveMessage("Da cap nhat assignee.");
+        setSaveMessage("Assignee updated.");
       } catch (err) {
         const message =
           err instanceof ApiError
             ? err.message
-            : parseErrorMessage(err) || "Khong xoa duoc assignee.";
+            : parseErrorMessage(err) || "Could not remove assignee.";
         setError(message);
       } finally {
         setAssigneeBusy(false);
@@ -1090,12 +1090,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
               ),
           ),
         ]);
-        setSaveMessage("Da them attachment.");
+        setSaveMessage("Attachment added.");
       } catch (err) {
         const message =
           err instanceof ApiError
             ? err.message
-            : parseErrorMessage(err) || "Khong them duoc attachment.";
+            : parseErrorMessage(err) || "Could not add attachment.";
         setError(message);
       } finally {
         setAttachmentBusy(false);
@@ -1110,12 +1110,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     try {
       await deleteAttachment(attachmentId);
       setAttachments((prev) => prev.filter((item) => item.id !== attachmentId));
-      setSaveMessage("Da xoa attachment.");
+      setSaveMessage("Attachment removed.");
     } catch (err) {
       const message =
         err instanceof ApiError
           ? err.message
-          : parseErrorMessage(err) || "Khong xoa duoc attachment.";
+          : parseErrorMessage(err) || "Could not remove attachment.";
       setError(message);
     } finally {
       setAttachmentBusy(false);
@@ -1135,12 +1135,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       userCacheRef.current.set(viewer.userId, viewer);
       setComments((prev) => [...prev, ...mapCommentItems([created])]);
       setCommentDraft("");
-      setSaveMessage("Da them comment.");
+      setSaveMessage("Comment added.");
     } catch (err) {
       const message =
         err instanceof ApiError
           ? err.message
-          : parseErrorMessage(err) || "Khong them duoc comment.";
+          : parseErrorMessage(err) || "Could not add comment.";
       setError(message);
     } finally {
       setCommentBusy(false);
@@ -1153,12 +1153,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     try {
       await deleteComment(commentId);
       setComments((prev) => prev.filter((item) => item.id !== commentId));
-      setSaveMessage("Da xoa comment.");
+      setSaveMessage("Comment deleted.");
     } catch (err) {
       const message =
         err instanceof ApiError
           ? err.message
-          : parseErrorMessage(err) || "Khong xoa duoc comment.";
+          : parseErrorMessage(err) || "Could not delete comment.";
       setError(message);
     } finally {
       setCommentBusy(false);

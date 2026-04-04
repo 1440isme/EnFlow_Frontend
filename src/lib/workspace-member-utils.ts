@@ -1,11 +1,11 @@
 /** Chuỗi role từ API (chữ thường). */
 export function formatWorkspaceRole(role: string): string {
   const r = role.toLowerCase();
-  if (r === 'owner') return 'Chủ sở hữu';
-  if (r === 'member') return 'Thành viên';
-  if (r === 'guest') return 'Khách';
+  if (r === 'owner') return 'Owner';
+  if (r === 'member') return 'Member';
+  if (r === 'guest') return 'Guest';
   // Dữ liệu cũ / lỗi thời
-  if (r === 'admin') return 'Thành viên';
+  if (r === 'admin') return 'Member';
   return role || '—';
 }
 

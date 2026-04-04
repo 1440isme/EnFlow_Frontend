@@ -1,8 +1,10 @@
 import { getAccessToken } from '@/lib/auth-token';
 
 /**
- * - Trình duyệt: URL tương đối `/enflow` → Next rewrite proxy.
- * - NEXT_PUBLIC_API_BASE_URL: gọi trực tiếp (CORS đã cấu hình).
+ * Base URL for API calls:
+ * - Browser: empty string → same-origin paths like `/enflow/...`.
+ * - NEXT_PUBLIC_API_BASE_URL: absolute API origin when calling cross-origin (CORS on backend).
+ * - Server (SSR): API_PROXY_TARGET → backend origin (default http://localhost:8080).
  */
 export function getApiBaseUrl(): string {
   const explicit = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
@@ -93,7 +95,7 @@ export async function requestJson<T>(
     });
   } catch {
     throw new ApiError(
-      'Không kết nối được máy chủ. Kiểm tra backend đang chạy (port 8080), biến API_PROXY_TARGET trong next.config, và khởi động lại dev server sau khi sửa .env.',
+      'Không kết nối được máy chủ. Kiểm tra backend đang chạy (port 8080), biến môi trường API_PROXY_TARGET / NEXT_PUBLIC_API_BASE_URL, và khởi động lại dev server sau khi sửa .env.',
       0,
       null
     );

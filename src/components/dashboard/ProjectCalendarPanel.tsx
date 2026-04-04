@@ -354,7 +354,7 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
   const goNext = () => setViewMonth(new Date(y, m + 1, 1));
 
   if (loading) {
-    return <div className="p-8 text-gray-500">Đang tải lịch và task…</div>;
+    return <div className="p-8 text-gray-500">Loading calendar…</div>;
   }
 
   if (error && tasks.length === 0) {
@@ -387,7 +387,7 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
               </Button>
             </div>
           </div>
-          {scopeLabel ? <p className="text-xs text-slate-500">Phạm vi: {scopeLabel}</p> : null}
+          {scopeLabel ? <p className="text-xs text-slate-500">Scope: {scopeLabel}</p> : null}
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -671,7 +671,7 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
       </div>
 
       <p className="text-xs text-slate-500">
-        Chỉ hiển thị task có due date (sau khi áp dụng bộ lọc). Task không có hạn không xuất hiện trên lưới.
+        Only tasks with a due date appear on the grid. Tasks without a due date are hidden.
       </p>
     </div>
   );

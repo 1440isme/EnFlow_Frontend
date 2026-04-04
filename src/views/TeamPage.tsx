@@ -138,7 +138,7 @@ export default function TeamPage() {
         setError(
           e instanceof ApiError
             ? e.message
-            : 'Không tải được danh sách thành viên. Hiển thị tối thiểu tài khoản của bạn.'
+            : 'Could not load members. Showing your account only.'
         );
       }
 
@@ -187,7 +187,7 @@ export default function TeamPage() {
         } else {
           display.push({
             userId,
-            fullName: `Người dùng #${userId}`,
+            fullName: `User #${userId}`,
             email: '—',
             roleKey: roleRaw,
             roleInWorkspace: formatWorkspaceRole(roleRaw),
@@ -200,17 +200,17 @@ export default function TeamPage() {
       display.sort((a, b) => {
         if (a.isYou && !b.isYou) return -1;
         if (!a.isYou && b.isYou) return 1;
-        return a.fullName.localeCompare(b.fullName, 'vi');
+        return a.fullName.localeCompare(b.fullName, 'en');
       });
 
       setRows(display);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
-        setError('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        setError('Session expired. Please sign in again.');
         setRows([]);
         return;
       }
-      setError(e instanceof ApiError ? e.message : 'Không tải được team.');
+      setError(e instanceof ApiError ? e.message : 'Could not load team.');
       setRows([]);
     } finally {
       setLoading(false);
@@ -238,7 +238,7 @@ export default function TeamPage() {
       });
       await load();
     } catch (e) {
-      setActionError(e instanceof ApiError ? e.message : 'Không cập nhật vai trò.');
+      setActionError(e instanceof ApiError ? e.message : 'Could not update role.');
     } finally {
       setRowBusy(null);
     }
@@ -253,7 +253,7 @@ export default function TeamPage() {
       setRemoveTarget(null);
       await load();
     } catch (e) {
-      setActionError(e instanceof ApiError ? e.message : 'Không gỡ được thành viên.');
+      setActionError(e instanceof ApiError ? e.message : 'Could not remove member.');
     } finally {
       setRowBusy(null);
     }
@@ -265,11 +265,11 @@ export default function TeamPage() {
     setInviteLookup(null);
     const email = inviteEmail.trim();
     if (!email) {
-      setInviteLookupError('Nhập email.');
+      setInviteLookupError('Enter an email address.');
       return;
     }
     if (!email.includes('@')) {
-      setInviteLookupError('Email không hợp lệ.');
+      setInviteLookupError('Invalid email.');
       return;
     }
     setInviteLookupLoading(true);
@@ -278,7 +278,7 @@ export default function TeamPage() {
       setInviteLookup(found);
     } catch (e) {
       setInviteLookupError(
-        e instanceof ApiError ? e.message : 'Không tra cứu được người dùng.'
+        e instanceof ApiError ? e.message : 'User lookup failed.'
       );
     } finally {
       setInviteLookupLoading(false);
@@ -300,7 +300,7 @@ export default function TeamPage() {
       setInviteRole('member');
       await load();
     } catch (e) {
-      setInviteError(e instanceof ApiError ? e.message : 'Không thêm được thành viên.');
+      setInviteError(e instanceof ApiError ? e.message : 'Could not add member.');
     } finally {
       setInviteSaving(false);
     }
@@ -327,7 +327,7 @@ export default function TeamPage() {
             }}
           >
             <UserPlus className="w-4 h-4 mr-2" />
-            Thêm thành viên
+            Add member
           </Button>
         ) : null}
       </div>
@@ -340,9 +340,9 @@ export default function TeamPage() {
       ) : null}
 
       {loading ? (
-        <Card className="p-12 text-center text-gray-600">Đang tải danh sách…</Card>
+        <Card className="p-12 text-center text-gray-600">Loading members…</Card>
       ) : rows.length === 0 ? (
-        <Card className="p-12 text-center text-gray-600">Không có dữ liệu thành viên.</Card>
+        <Card className="p-12 text-center text-gray-600">No members to show.</Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {rows.map((member) => {
@@ -374,7 +374,7 @@ export default function TeamPage() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-semibold text-gray-900 truncate">{member.fullName}</h3>
                         {member.isYou ? (
-                          <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">Bạn</Badge>
+                          <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">You</Badge>
                         ) : null}
                       </div>
                       {showActions ? (
@@ -400,7 +400,7 @@ export default function TeamPage() {
                             disabled={busy}
                             onClick={() => setRemoveTarget(member)}
                           >
-                            Gỡ
+                            Remove
                           </Button>
                         </div>
                       ) : (
@@ -434,10 +434,10 @@ export default function TeamPage() {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Thêm thành viên</DialogTitle>
+            <DialogTitle>Add member</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-gray-600">
-            Tra cứu người dùng theo email, chọn Member hoặc Guest rồi xác nhận.
+            Look up by email, choose Member or Guest, then confirm.
           </p>
           {inviteError ? (
             <Alert variant="destructive">
@@ -474,7 +474,7 @@ export default function TeamPage() {
               onClick={() => void handleInviteLookup()}
               disabled={inviteSaving || inviteLookupLoading}
             >
-              {inviteLookupLoading ? 'Đang tra…' : 'Tra cứu'}
+              {inviteLookupLoading ? 'Looking up…' : 'Look up'}
             </Button>
             {inviteLookupError ? (
               <Alert variant="destructive">
@@ -504,7 +504,7 @@ export default function TeamPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Vai trò</Label>
+                  <Label>Role</Label>
                   <Select
                     value={inviteRole}
                     onValueChange={(v) => setInviteRole(v as 'member' | 'guest')}
@@ -524,7 +524,7 @@ export default function TeamPage() {
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>
-              Hủy
+              Cancel
             </Button>
             <Button
               type="button"
@@ -532,7 +532,7 @@ export default function TeamPage() {
               disabled={inviteLookup == null || inviteSaving}
               onClick={() => void handleAddMember()}
             >
-              {inviteSaving ? 'Đang thêm…' : 'Thêm vào workspace'}
+              {inviteSaving ? 'Adding…' : 'Add to workspace'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -541,20 +541,20 @@ export default function TeamPage() {
       <AlertDialog open={removeTarget != null} onOpenChange={(o) => !o && setRemoveTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Gỡ thành viên?</AlertDialogTitle>
+            <AlertDialogTitle>Remove member?</AlertDialogTitle>
             <AlertDialogDescription>
               {removeTarget
-                ? `${removeTarget.fullName} (${removeTarget.email}) sẽ bị gỡ khỏi workspace.`
+                ? `${removeTarget.fullName} (${removeTarget.email}) will be removed from this workspace.`
                 : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Hủy</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-600 hover:bg-red-700"
               onClick={() => void handleConfirmRemove()}
             >
-              Gỡ
+              Remove
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

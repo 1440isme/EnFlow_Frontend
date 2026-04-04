@@ -65,7 +65,7 @@ function ProjectDashboardContent() {
     void loadProjectLists();
   }, [loadProjectLists]);
 
-  /** Đổi workspace ở sidebar: nếu project hiện tại không thuộc workspace đó → về danh sách project. */
+  /** When switching workspace: if this project is not in that workspace, go back to projects. */
   useEffect(() => {
     if (!Number.isFinite(projectIdNumber) || projectIdNumber <= 0) return;
 
@@ -105,7 +105,7 @@ function ProjectDashboardContent() {
   const projectTitle =
     nameFromQuery && nameFromQuery.trim().length > 0
       ? decodeURIComponent(nameFromQuery.trim())
-      : `Dự án ${projectId}`;
+      : `Project ${projectId}`;
 
   const handleViewChange = (value: string) => {
     const nextParams = new URLSearchParams(searchParams.toString());
@@ -130,7 +130,7 @@ function ProjectDashboardContent() {
       <div className="flex items-center gap-4">
         <Select value={selectedView} onValueChange={handleViewChange}>
           <SelectTrigger className="w-[280px] bg-white">
-            <SelectValue placeholder="Chọn vùng tra cứu" />
+            <SelectValue placeholder="Select scope" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="project">
@@ -220,7 +220,7 @@ export default function ProjectDashboardPage() {
   return (
     <Suspense
       fallback={
-        <div className="p-6 text-gray-600">Đang tải dashboard dự án…</div>
+        <div className="p-6 text-gray-600">Loading project…</div>
       }
     >
       <ProjectDashboardContent />

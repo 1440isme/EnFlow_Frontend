@@ -112,7 +112,7 @@ export function projectBreakdown(
 ): { name: string; total: number; done: number; pct: number }[] {
   const groups = new Map<string, { total: number; done: number }>();
   for (const r of raw) {
-    const name = r.projectName?.trim() || `Dự án #${r.projectId}`;
+    const name = r.projectName?.trim() || `Project #${r.projectId}`;
     const g = groups.get(name) ?? { total: 0, done: 0 };
     g.total += 1;
     const t = mappedByTaskId.get(r.taskId);

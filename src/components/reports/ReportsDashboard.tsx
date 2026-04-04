@@ -63,12 +63,12 @@ const TYPE_COLOR: Record<string, string> = {
 
 type Props = {
   variant: 'project' | 'workspace';
-  /** project: báo cáo theo dự án / list; workspace: toàn workspace */
+  /** project: scoped to project/list; workspace: entire workspace */
   title: string;
   raw: TaskResponse[];
   mapped: Task[];
   listCount?: number | null;
-  /** Chỉ workspace: danh sách dự án để ngữ cảnh */
+  /** Workspace only: project count for context */
   workspaceProjectCount?: number;
 };
 
@@ -112,9 +112,9 @@ export default function ReportsDashboard({
 
   const statusChartData = useMemo(
     () => [
-      { name: 'Hoàn thành', value: completedTasks, fill: STATUS_FILL.done },
-      { name: 'Đang làm', value: inProgressTasks, fill: STATUS_FILL.doing },
-      { name: 'Chưa bắt đầu', value: todoTasks, fill: STATUS_FILL.todo },
+      { name: 'Done', value: completedTasks, fill: STATUS_FILL.done },
+      { name: 'In progress', value: inProgressTasks, fill: STATUS_FILL.doing },
+      { name: 'To do', value: todoTasks, fill: STATUS_FILL.todo },
     ],
     [completedTasks, inProgressTasks, todoTasks],
   );
@@ -123,25 +123,25 @@ export default function ReportsDashboard({
     () => [
       {
         name: formatTaskPriorityLabel('urgent'),
-        full: `Ưu tiên ${formatTaskPriorityLabel('urgent')}`,
+        full: `Priority · ${formatTaskPriorityLabel('urgent')}`,
         value: tasksByPriority.urgent,
         fill: PRIORITY_FILL.urgent,
       },
       {
         name: formatTaskPriorityLabel('high'),
-        full: `Ưu tiên ${formatTaskPriorityLabel('high')}`,
+        full: `Priority · ${formatTaskPriorityLabel('high')}`,
         value: tasksByPriority.high,
         fill: PRIORITY_FILL.high,
       },
       {
         name: formatTaskPriorityLabel('medium'),
-        full: `Ưu tiên ${formatTaskPriorityLabel('medium')}`,
+        full: `Priority · ${formatTaskPriorityLabel('medium')}`,
         value: tasksByPriority.medium,
         fill: PRIORITY_FILL.medium,
       },
       {
         name: formatTaskPriorityLabel('low'),
-        full: `Ưu tiên ${formatTaskPriorityLabel('low')}`,
+        full: `Priority · ${formatTaskPriorityLabel('low')}`,
         value: tasksByPriority.low,
         fill: PRIORITY_FILL.low,
       },
@@ -172,41 +172,41 @@ export default function ReportsDashboard({
 
   const executiveKpis = [
     {
-      label: 'Tỷ lệ hoàn thành',
+      label: 'Completion rate',
       value: `${completionPct}%`,
-      hint: `${completedTasks}/${totalTasks} task`,
+      hint: `${completedTasks}/${totalTasks} tasks`,
       icon: CheckCircle2,
       tone: 'text-emerald-600',
       bg: 'bg-emerald-50',
     },
     {
-      label: 'Đang hoạt động (WIP)',
+      label: 'Work in progress',
       value: String(inProgressTasks),
-      hint: 'Đang làm + review…',
+      hint: 'Active items in progress',
       icon: CircleDot,
       tone: 'text-orange-600',
       bg: 'bg-orange-50',
     },
     {
-      label: 'Quá hạn',
+      label: 'Overdue',
       value: String(overdue),
-      hint: 'Chưa đóng, trễ due',
+      hint: 'Open, past due',
       icon: AlertTriangle,
       tone: 'text-amber-700',
       bg: 'bg-amber-50',
     },
     {
-      label: 'Throughput 14 ngày',
-      value: `${completed14} xong`,
-      hint: `${created14} tạo mới`,
+      label: '14-day throughput',
+      value: `${completed14} done`,
+      hint: `${created14} created`,
       icon: TrendingUp,
       tone: 'text-[#004ba8]',
       bg: 'bg-blue-50',
     },
     {
-      label: 'Chưa ước lượng effort',
+      label: 'Unestimated',
       value: String(unestimated),
-      hint: 'Chưa có estimate/spent',
+      hint: 'No estimate logged',
       icon: ListTodo,
       tone: 'text-slate-600',
       bg: 'bg-slate-100',
@@ -223,15 +223,15 @@ export default function ReportsDashboard({
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-[#004ba8]">
-                {variant === 'project' ? 'Báo cáo dự án' : 'Báo cáo workspace'}
+                {variant === 'project' ? 'Project report' : 'Workspace report'}
               </p>
               <h2 className="text-xl font-semibold tracking-tight text-gray-900">{title}</h2>
               {variant === 'project' && listCount != null ? (
-                <p className="mt-2 text-xs text-gray-500">{listCount} list trong dự án · phạm vi theo bộ lọc</p>
+                <p className="mt-2 text-xs text-gray-500">{listCount} lists in project · current filters</p>
               ) : null}
               {variant === 'workspace' && workspaceProjectCount != null ? (
                 <p className="mt-2 text-xs text-gray-500">
-                  {workspaceProjectCount} dự án trong workspace
+                  {workspaceProjectCount} projects in workspace
                 </p>
               ) : null}
             </div>
@@ -241,13 +241,13 @@ export default function ReportsDashboard({
 
       {totalTasks === 0 ? (
         <Card className="p-10 text-center text-gray-600">
-          Chưa có task trong phạm vi này — chưa đủ dữ liệu để phân tích.
+          No tasks in this scope — not enough data for charts.
         </Card>
       ) : (
         <>
           <div>
             <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">
-              Chỉ số điều hành
+              Executive metrics
             </h3>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
               {executiveKpis.map((k) => (
@@ -268,9 +268,9 @@ export default function ReportsDashboard({
           </div>
 
           <Card className="p-6">
-            <h3 className="mb-1 font-semibold text-gray-900">Throughput — tạo mới vs hoàn thành</h3>
+            <h3 className="mb-1 font-semibold text-gray-900">Throughput — created vs completed</h3>
             <p className="mb-4 text-sm text-gray-500">
-              14 ngày gần nhất (theo ngày tạo task và ngày đóng)
+              Last 14 days by task creation and completion dates
             </p>
             <div className="h-[300px] w-full min-w-0">
               <ResponsiveContainer width="100%" height="100%">
@@ -297,7 +297,7 @@ export default function ReportsDashboard({
                   <Line
                     type="monotone"
                     dataKey="created"
-                    name="Tạo mới"
+                    name="Created"
                     stroke="#2563eb"
                     strokeWidth={2}
                     dot={false}
@@ -305,7 +305,7 @@ export default function ReportsDashboard({
                   <Line
                     type="monotone"
                     dataKey="completed"
-                    name="Hoàn thành"
+                    name="Completed"
                     stroke="#16a34a"
                     strokeWidth={2}
                     dot={false}
@@ -317,9 +317,9 @@ export default function ReportsDashboard({
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card className="p-6">
-              <h3 className="mb-1 font-semibold text-gray-900">Trạng thái workflow</h3>
+              <h3 className="mb-1 font-semibold text-gray-900">Workflow status</h3>
               <p className="mb-4 text-sm text-gray-500">
-                Phân bổ theo cột trạng thái (gộp nhóm như backlog / in progress / done).
+                Rolled up to To do, In progress, and Done.
               </p>
               <div className="h-[280px] w-full min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
@@ -359,8 +359,8 @@ export default function ReportsDashboard({
             </Card>
 
             <Card className="p-6">
-              <h3 className="mb-1 font-semibold text-gray-900">Ưu tiên</h3>
-              <p className="mb-4 text-sm text-gray-500">Khối lượng theo mức ưu tiên (để lên kế hoạch sprint).</p>
+              <h3 className="mb-1 font-semibold text-gray-900">Priority</h3>
+              <p className="mb-4 text-sm text-gray-500">Volume by priority level.</p>
               <div className="h-[280px] w-full min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={priorityChartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
@@ -392,7 +392,7 @@ export default function ReportsDashboard({
 
           {typeData.length > 0 ? (
             <Card className="p-6">
-              <h3 className="mb-1 font-semibold text-gray-900">Loại công việc</h3>
+              <h3 className="mb-1 font-semibold text-gray-900">Work type</h3>
               <p className="mb-4 text-sm text-gray-500">
                 Epic / Story / Task / Bug / Subtask
               </p>
@@ -434,9 +434,9 @@ export default function ReportsDashboard({
 
           {variant === 'project' && listData.length > 0 ? (
             <Card className="p-6">
-              <h3 className="mb-1 font-semibold text-gray-900">Theo danh sách (list)</h3>
+              <h3 className="mb-1 font-semibold text-gray-900">By list</h3>
               <p className="mb-4 text-sm text-gray-500">
-                So sánh khối lượng và tỷ lệ hoàn thành giữa các list trong dự án.
+                Workload and completion rate per list.
               </p>
               <div
                 className="w-full min-w-0"
@@ -462,13 +462,13 @@ export default function ReportsDashboard({
                           <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm shadow-md">
                             <div className="font-medium text-gray-900">{row.name}</div>
                             <div className="text-gray-600">
-                              {row.pct}% hoàn thành ({row.done}/{row.total} task)
+                              {row.pct}% done ({row.done}/{row.total} tasks)
                             </div>
                           </div>
                         );
                       }}
                     />
-                    <Bar dataKey="pct" fill="#004ba8" radius={[0, 4, 4, 0]} name="Tỷ lệ %" />
+                    <Bar dataKey="pct" fill="#004ba8" radius={[0, 4, 4, 0]} name="%" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -477,9 +477,9 @@ export default function ReportsDashboard({
 
           {variant === 'workspace' && projectBarData.length > 0 ? (
             <Card className="p-6">
-              <h3 className="mb-1 font-semibold text-gray-900">Theo dự án</h3>
+              <h3 className="mb-1 font-semibold text-gray-900">By project</h3>
               <p className="mb-4 text-sm text-gray-500">
-                Tỷ lệ hoàn thành theo từng dự án
+                Completion rate per project
               </p>
               <div
                 className="w-full min-w-0"
@@ -502,7 +502,7 @@ export default function ReportsDashboard({
                           <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm shadow-md">
                             <div className="font-medium text-gray-900">{row.full}</div>
                             <div className="text-gray-600">
-                              {row.tyLe}% hoàn thành ({row.done}/{row.tong} task)
+                              {row.tyLe}% done ({row.done}/{row.tong} tasks)
                             </div>
                           </div>
                         );

@@ -43,7 +43,7 @@ export default function WorkspaceReportsPage() {
         setProjectCount(projects.length);
       } catch (err: unknown) {
         console.error(err);
-        if (mounted) setError(err instanceof Error ? err.message : 'Không tải được báo cáo workspace');
+        if (mounted) setError(err instanceof Error ? err.message : 'Could not load workspace report.');
       } finally {
         if (mounted) setLoading(false);
       }
@@ -58,7 +58,7 @@ export default function WorkspaceReportsPage() {
   if (loading) {
     return (
       <div className="p-6">
-        <Card className="p-6">Đang tải báo cáo workspace…</Card>
+        <Card className="p-6">Loading workspace report…</Card>
       </div>
     );
   }
@@ -75,7 +75,7 @@ export default function WorkspaceReportsPage() {
     <div className="p-6">
       <ReportsDashboard
         variant="workspace"
-        title="Thống kê workspace"
+        title="Workspace statistics"
         raw={raw}
         mapped={mapped}
         workspaceProjectCount={projectCount}

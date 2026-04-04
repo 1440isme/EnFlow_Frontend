@@ -795,7 +795,7 @@ export default function MyTasksPage() {
                         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</p>
                         <div className="flex max-h-40 flex-col gap-2 overflow-y-auto pr-1">
                           {statusFilterOptions.length === 0 ? (
-                            <p className="text-xs text-slate-500">Chưa có trạng thái.</p>
+                            <p className="text-xs text-slate-500">No statuses.</p>
                           ) : (
                             statusFilterOptions.map((s) => (
                               <label
