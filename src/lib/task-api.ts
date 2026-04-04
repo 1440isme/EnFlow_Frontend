@@ -1,4 +1,4 @@
-import { requestJson } from '@/lib/http';
+import { requestJson, ApiError } from '@/lib/http';
 import type { Task } from '@/types/task';
 import { getProjectsByWorkspace } from '@/lib/project-api';
 import { getWorkspaceSnapshot } from '@/lib/workspace-storage';
@@ -214,6 +214,15 @@ export async function getTasksByList(listId: number): Promise<Task[]> {
   return (tasks ?? []).map((t) => taskResponseToTask(t, statusById));
 }
 
+/** Raw task payloads (mapper DashboardTask / filter). */
+export async function listTaskResponsesByProject(projectId: number): Promise<TaskResponse[]> {
+  return requestJson<TaskResponse[]>('GET', `/enflow/tasks/projects/${projectId}`, { auth: true });
+}
+
+export async function listTaskResponsesByList(listId: number): Promise<TaskResponse[]> {
+  return requestJson<TaskResponse[]>('GET', `/enflow/tasks/lists/${listId}`, { auth: true });
+}
+
 export async function listTasks(projectId?: number): Promise<Task[]> {
   if (projectId !== undefined && Number.isFinite(projectId)) {
     const tasks = await requestJson<TaskResponse[]>('GET', `/enflow/tasks/projects/${projectId}`, {
@@ -318,4 +327,52 @@ export async function addTaskAssignee(
     body,
     auth: true,
   });
+}
+
+export type TaskAssigneeUpdateRequest = {
+  isPrimary?: boolean;
+};
+
+export async function updateTaskAssignee(
+  taskId: number,
+  userId: number,
+  body: TaskAssigneeUpdateRequest,
+): Promise<TaskAssigneeResponse> {
+  return requestJson<TaskAssigneeResponse>(
+    'PUT',
+    `/enflow/task-assignees/tasks/${taskId}/users/${userId}`,
+    { body, auth: true },
+  );
+}
+
+export async function removeTaskAssignee(taskId: number, userId: number): Promise<void> {
+  await requestJson<void>('DELETE', `/enflow/task-assignees/tasks/${taskId}/users/${userId}`, {
+    auth: true,
+  });
+}
+
+export async function deleteTask(taskId: number): Promise<void> {
+  await requestJson<void>('DELETE', `/enflow/tasks/${taskId}`, { auth: true });
+}
+
+/** Xóa nhiều task; backend chỉ có DELETE từng id — dùng Promise.allSettled. */
+export async function deleteTasksByIds(taskIds: number[]): Promise<{
+  succeeded: number[];
+  failed: { taskId: number; message: string }[];
+}> {
+  const results = await Promise.allSettled(taskIds.map((id) => deleteTask(id)));
+  const succeeded: number[] = [];
+  const failed: { taskId: number; message: string }[] = [];
+  results.forEach((r, i) => {
+    const id = taskIds[i];
+    if (r.status === 'fulfilled') succeeded.push(id);
+    else {
+      const reason = r.reason;
+      failed.push({
+        taskId: id,
+        message: reason instanceof ApiError ? reason.message : String(reason),
+      });
+    }
+  });
+  return { succeeded, failed };
 }

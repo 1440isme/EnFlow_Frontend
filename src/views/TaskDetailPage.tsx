@@ -12,6 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { getTaskById } from '@/lib/task-api';
 import { getStatusById } from '@/lib/status-api';
 import type { StatusesResponse } from '@/types/api';
+import { formatTaskPriorityLabel } from '@/lib/task-priority-ui';
 
 const priorityColors: Record<Priority, string> = {
   low: 'bg-gray-100 text-gray-700',
@@ -19,14 +20,6 @@ const priorityColors: Record<Priority, string> = {
   normal: 'bg-green-100 text-green-700',
   high: 'bg-orange-100 text-orange-700',
   urgent: 'bg-red-100 text-red-700',
-};
-
-const priorityLabels: Record<Priority, string> = {
-  low: 'Thấp',
-  medium: 'Trung bình',
-  normal: 'Bình thường',
-  high: 'Cao',
-  urgent: 'Khẩn cấp',
 };
 
 const statusBadgeClasses: Record<string, string> = {
@@ -165,9 +158,9 @@ function TaskDetailBody({
               <div className="flex items-start gap-3">
                 <Flag className="w-5 h-5 text-gray-600 mt-0.5" />
                 <div className="flex-1">
-                  <div className="text-sm text-gray-600 mb-1">Độ ưu tiên</div>
+                  <div className="text-sm text-gray-600 mb-1">Priority</div>
                   <Badge className={priorityColors[task.priority]}>
-                    {priorityLabels[task.priority]}
+                    {formatTaskPriorityLabel(task.priority)}
                   </Badge>
                 </div>
               </div>

@@ -5,17 +5,12 @@ import { useRouter } from 'next/navigation';
 import {
   Calendar,
   CalendarDays,
-  Check,
-  ChevronDown,
   CircleAlert,
-  Folder,
-  List,
+  Clock3,
   Search,
   SlidersHorizontal,
   ArrowUpDown,
   LayoutGrid,
-  Flag,
-  Clock3,
   Plus,
   X,
 } from 'lucide-react';
@@ -23,66 +18,39 @@ import type { Task } from '@/types/task';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/components/ui/utils';
-import { getProjectsByWorkspace, type ProjectResponse } from '@/lib/project-api';
-import { getListsByProject } from '@/lib/list-api';
 import { getStatusesByList } from '@/lib/status-api';
 import { getCurrentUser } from '@/lib/user-api';
-import { getStoredUserId } from '@/lib/auth-session';
-import { listWorkspaces, listWorkspacesByOwner } from '@/lib/workspace-api';
 import {
-  addTaskAssignee,
-  createTask,
+  deleteTasksByIds,
   getTask,
   getTaskAssignees,
   getTaskTags,
   getTasksAssignedToUser,
   updateTask,
-  type TaskAssigneeResponse,
-  type TaskResponse,
 } from '@/lib/task-api';
 import { ApiError } from '@/lib/http';
 import type { StatusesResponse } from '@/types/api';
+import type { DashboardTask } from '@/types/dashboard-task';
+import {
+  inferTaskStatusFromDates,
+  mapBackendPriority,
+  mapBackendStatusGroup,
+  mapFrontendPriorityToBackend,
+  toDashboardTask,
+} from '@/lib/dashboard-task-mapper';
+import { sortStatuses } from '@/lib/task-status-ui';
+import { formatTaskPriorityLabel, TASK_PRIORITY_DISPLAY_ORDER } from '@/lib/task-priority-ui';
+import { TaskTableRow, MY_TASKS_TABLE_GRID } from '@/components/tasks/TaskTableRow';
+import { TaskBulkSelectionBar } from '@/components/tasks/TaskBulkSelectionBar';
+import { TaskBulkDeleteDialog } from '@/components/tasks/TaskBulkDeleteDialog';
+import { CreateTaskDialog } from '@/components/tasks/CreateTaskDialog';
 
-type DashboardTask = Task & {
-  taskId: number;
-  projectId: number;
-  listId: number;
-  statusId: number;
-  reporterId: number;
-  startDate: string;
-  completedAt: string;
-  list: string;
-  taskType: TaskResponse['taskType'];
-  timeEstimateDays: number | null;
-  updatedAt: string;
-};
+const metaColumnCell = 'min-w-0 border-l border-slate-200 pl-3';
 
 type StatusesByList = Record<number, StatusesResponse[]>;
 type GroupByOption = 'none' | 'status' | 'priority' | 'project' | 'list';
@@ -90,60 +58,6 @@ type SortByOption = 'dueDate' | 'priority' | 'updatedAt' | 'title';
 type SortDirection = 'asc' | 'desc';
 type MyTaskTab = 'all' | 'in-progress' | 'upcoming' | 'overdue' | 'completed';
 type DateRangePreset = 'all' | 'today' | 'this_week' | 'this_month' | 'custom';
-
-const fallbackAvatar = '/placeholder.svg';
-
-const mapBackendPriority = (priority: TaskResponse['priority']): Task['priority'] => {
-  if (priority === 'normal') return 'medium';
-  return priority;
-};
-
-const mapFrontendPriorityToBackend = (priority: Task['priority']): TaskResponse['priority'] =>
-  priority === 'medium' ? 'normal' : priority;
-
-/** Chuẩn hoá statusGroup từ API (enum snake_case hoặc display name kiểu "IN PROGRESS"). */
-function normalizeBackendStatusGroupKey(raw: string): string {
-  return String(raw ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '_')
-    .replace(/-/g, '_');
-}
-
-const mapBackendStatusGroup = (statusGroup: string): Task['status'] => {
-  const g = normalizeBackendStatusGroupKey(statusGroup);
-  if (g === 'completed') return 'done';
-  if (['in_progress', 'review', 'testing', 'deploy'].includes(g)) return 'in-progress';
-  return 'todo';
-};
-
-const inferTaskStatusFromDates = (
-  startDate: string | null | undefined,
-  completedAt: string | null | undefined,
-): Task['status'] => {
-  if (completedAt) return 'done';
-  if (startDate && new Date(startDate).getTime() <= Date.now()) return 'in-progress';
-  return 'todo';
-};
-
-/** Backend StatusesRespone không có `name`; hiển thị từ statusGroup (API thật). */
-const formatStatusLabel = (s: StatusesResponse) => {
-  const rawName = (s as { name?: string | null }).name;
-  if (typeof rawName === 'string' && rawName.trim()) return rawName.trim();
-  const g = String(s.statusGroup ?? '').replace(/_/g, ' ');
-  return g.trim() || `Status #${s.statusId}`;
-};
-
-const sortStatuses = (statuses: StatusesResponse[]) =>
-  [...statuses].sort((left, right) => {
-    if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
-    return (left.position ?? Number.MAX_SAFE_INTEGER) - (right.position ?? Number.MAX_SAFE_INTEGER);
-  });
-
-const pickPrimaryAssignee = (
-  assignees: TaskAssigneeResponse[],
-  currentUserId: number,
-) => assignees.find((item) => item.isPrimary) ?? assignees.find((item) => item.userId === currentUserId) ?? assignees[0];
 
 const toDateInputValue = (value: string) => {
   if (!value) return '';
@@ -212,7 +126,6 @@ const statusLabel: Record<Task['status'], string> = {
 };
 
 const statusGroupOrder: Task['status'][] = ['todo', 'in-progress', 'done'];
-const priorityGroupOrder: Task['priority'][] = ['urgent', 'high', 'medium', 'normal', 'low'];
 
 const priorityOrder: Record<Task['priority'], number> = {
   urgent: 0,
@@ -230,90 +143,6 @@ const priorityTone: Record<Task['priority'], string> = {
   urgent: 'text-rose-600',
 };
 
-const statusBadgeTone = (statusGroup: string) => {
-  const g = normalizeBackendStatusGroupKey(statusGroup);
-  if (g === 'completed') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-  if (g === 'review') return 'bg-violet-50 text-violet-700 border-violet-200';
-  if (g === 'in_progress' || g === 'testing' || g === 'deploy') {
-    return 'bg-blue-50 text-blue-700 border-blue-200';
-  }
-  if (g === 'backlog' || g === 'idea') {
-    return 'bg-amber-50 text-amber-700 border-amber-200';
-  }
-  return 'bg-slate-50 text-slate-700 border-slate-200';
-};
-
-/** Dot + label colors for open status menu rows (Figma-style) */
-const statusMenuItemStyles = (statusGroup: string): { dot: string; label: string } => {
-  const g = normalizeBackendStatusGroupKey(statusGroup);
-  switch (g) {
-    case 'completed':
-      return { dot: 'bg-emerald-500', label: 'text-emerald-700' };
-    case 'review':
-      return { dot: 'bg-violet-500', label: 'text-violet-700' };
-    case 'in_progress':
-      return { dot: 'bg-blue-500', label: 'text-blue-700' };
-    case 'testing':
-    case 'deploy':
-      return { dot: 'bg-amber-500', label: 'text-amber-700' };
-    case 'idea':
-    case 'backlog':
-    case 'to_do':
-    default:
-      return { dot: 'bg-slate-400', label: 'text-slate-600' };
-  }
-};
-
-const priorityMenuItemStyles: Record<Task['priority'], { label: string; flag: string }> = {
-  low: { label: 'text-slate-600', flag: 'text-slate-500' },
-  medium: { label: 'text-blue-600', flag: 'text-blue-600' },
-  normal: { label: 'text-blue-600', flag: 'text-blue-600' },
-  high: { label: 'text-orange-600', flag: 'text-orange-600' },
-  urgent: { label: 'text-rose-600', flag: 'text-rose-600' },
-};
-
-/** Separate lanes for Status | Priority | Due Date (fixed widths + gap; controls stay compact inside cells). */
-const MY_TASKS_TABLE_GRID =
-  'grid w-full grid-cols-[minmax(0,2fr)_minmax(0,1.05fr)_minmax(0,1.05fr)_11.75rem_9.75rem_13.5rem] gap-x-4';
-
-const metaColumnCell = 'min-w-0 border-l border-slate-200 pl-3';
-
-const toDashboardTask = (
-  task: TaskResponse,
-  assignees: TaskAssigneeResponse[],
-  currentUserId: number,
-  currentUserName: string,
-  tagNames: string[],
-): DashboardTask => {
-  const primaryAssignee = pickPrimaryAssignee(assignees, currentUserId);
-  const assigneeName = primaryAssignee?.fullName?.trim() || currentUserName || 'User';
-
-  return {
-    id: String(task.taskId),
-    taskId: task.taskId,
-    title: task.title,
-    description: task.description ?? '',
-    status: inferTaskStatusFromDates(task.startDate, task.completedAt),
-    priority: mapBackendPriority(task.priority),
-    projectId: task.projectId,
-    listId: task.listId,
-    statusId: task.statusId,
-    reporterId: task.reporterId,
-    startDate: task.startDate ?? '',
-    completedAt: task.completedAt ?? '',
-    assignee: assigneeName,
-    assigneeAvatar: fallbackAvatar,
-    project: task.projectName?.trim() || task.taskCode?.trim() || `Project #${task.projectId}`,
-    list: task.listName?.trim() || `List #${task.listId}`,
-    dueDate: task.dueDate ?? '',
-    createdAt: task.createdAt,
-    tags: tagNames,
-    taskType: task.taskType,
-    timeEstimateDays: task.timeEstimateDays,
-    updatedAt: task.updatedAt,
-  };
-};
-
 export default function MyTasksPage() {
   const router = useRouter();
   const [viewerName, setViewerName] = useState('User');
@@ -327,6 +156,9 @@ export default function MyTasksPage() {
   const [dueDateSavingTaskIds, setDueDateSavingTaskIds] = useState<Record<string, boolean>>({});
   const [dueDateDrafts, setDueDateDrafts] = useState<Record<string, string>>({});
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatuses, setFilterStatuses] = useState<Task['status'][]>([]);
@@ -343,22 +175,6 @@ export default function MyTasksPage() {
   const [activeTab, setActiveTab] = useState<MyTaskTab>('all');
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [createTitle, setCreateTitle] = useState('');
-  const [createDescription, setCreateDescription] = useState('');
-  const [createProjectId, setCreateProjectId] = useState<number | ''>('');
-  const [createListId, setCreateListId] = useState<number | ''>('');
-  const [createStatusId, setCreateStatusId] = useState<number | ''>('');
-  const [createPriority, setCreatePriority] = useState<Task['priority']>('medium');
-  const [createDue, setCreateDue] = useState('');
-  const [createLists, setCreateLists] = useState<{ listProjectId: number; name: string }[]>([]);
-  const [createProjectsCatalog, setCreateProjectsCatalog] = useState<ProjectResponse[]>([]);
-  const [createLoading, setCreateLoading] = useState(false);
-  const [createListsLoading, setCreateListsLoading] = useState(false);
-  const [createStatusesLoading, setCreateStatusesLoading] = useState(false);
-  const [createCatalogLoading, setCreateCatalogLoading] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  /** Status cho form Create (chỉ từ API theo list đã chọn), tách khỏi map status của bảng task. */
-  const [createFormStatuses, setCreateFormStatuses] = useState<StatusesResponse[]>([]);
 
   const loadTasks = useCallback(async () => {
     setIsLoading(true);
@@ -415,19 +231,21 @@ export default function MyTasksPage() {
     void loadTasks();
   }, [loadTasks]);
 
-  const assignedTasks = dashboardTasks.map((task) => {
-    const currentStatusId = taskStatusIds[task.id] ?? task.statusId;
-    const statuses = statusesByList[task.listId] ?? [];
-    const matchedStatus = statuses.find((status) => status.statusId === currentStatusId);
+  const assignedTasks = useMemo(() => {
+    return dashboardTasks.map((task) => {
+      const currentStatusId = taskStatusIds[task.id] ?? task.statusId;
+      const statuses = statusesByList[task.listId] ?? [];
+      const matchedStatus = statuses.find((status) => status.statusId === currentStatusId);
 
-    return {
-      ...task,
-      statusId: currentStatusId,
-      status: matchedStatus
-        ? mapBackendStatusGroup(matchedStatus.statusGroup)
-        : inferTaskStatusFromDates(task.startDate, task.completedAt),
-    };
-  });
+      return {
+        ...task,
+        statusId: currentStatusId,
+        status: matchedStatus
+          ? mapBackendStatusGroup(matchedStatus.statusGroup)
+          : inferTaskStatusFromDates(task.startDate, task.completedAt),
+      };
+    });
+  }, [dashboardTasks, taskStatusIds, statusesByList]);
 
   const fallbackNoticeNeeded = assignedTasks.some(
     (task) => task.project.startsWith('Project #') || task.list.startsWith('List #'),
@@ -587,12 +405,12 @@ export default function MyTasksPage() {
       return Array.from(sections.entries())
         .sort(
           (a, b) =>
-            priorityGroupOrder.indexOf(a[0] as Task['priority']) -
-            priorityGroupOrder.indexOf(b[0] as Task['priority']),
+            TASK_PRIORITY_DISPLAY_ORDER.indexOf(a[0] as Task['priority']) -
+            TASK_PRIORITY_DISPLAY_ORDER.indexOf(b[0] as Task['priority']),
         )
         .map(([key, items]) => ({
           key,
-          label: key.charAt(0).toUpperCase() + key.slice(1),
+          label: formatTaskPriorityLabel(key as Task['priority']),
           items,
         }));
     }
@@ -607,6 +425,68 @@ export default function MyTasksPage() {
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([key, items]) => ({ key, label: key, items }));
   }, [filteredTasks, groupBy]);
+
+  const selectedIdsSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds]);
+
+  useEffect(() => {
+    const allowed = new Set(filteredTasks.map((t) => t.id));
+    setSelectedTaskIds((prev) => {
+      const next = prev.filter((id) => allowed.has(id));
+      if (next.length === prev.length && next.every((id, i) => id === prev[i])) return prev;
+      return next;
+    });
+  }, [filteredTasks]);
+
+  const allFilteredSelected =
+    filteredTasks.length > 0 && filteredTasks.every((t) => selectedIdsSet.has(t.id));
+  const someFilteredSelected =
+    filteredTasks.some((t) => selectedIdsSet.has(t.id)) && !allFilteredSelected;
+
+  const handleToggleSelectAllFiltered = useCallback(() => {
+    if (allFilteredSelected) {
+      setSelectedTaskIds([]);
+    } else {
+      setSelectedTaskIds(filteredTasks.map((t) => t.id));
+    }
+  }, [allFilteredSelected, filteredTasks]);
+
+  const runBulkDelete = useCallback(async () => {
+    const numericIds = selectedTaskIds.map((id) => Number(id));
+    if (numericIds.length === 0) return;
+    setBulkDeleting(true);
+    setErrorMessage(null);
+    try {
+      const { succeeded, failed } = await deleteTasksByIds(numericIds);
+      const succSet = new Set(succeeded);
+      setDashboardTasks((prev) => prev.filter((t) => !succSet.has(t.taskId)));
+      setTaskStatusIds((prev) => {
+        const next = { ...prev };
+        succeeded.forEach((tid) => {
+          delete next[String(tid)];
+        });
+        return next;
+      });
+      setDueDateDrafts((prev) => {
+        const next = { ...prev };
+        succeeded.forEach((tid) => {
+          delete next[String(tid)];
+        });
+        return next;
+      });
+      setSelectedTaskIds((prev) => prev.filter((id) => !succSet.has(Number(id))));
+      setSelectedTaskId((prev) => (prev && succSet.has(Number(prev)) ? null : prev));
+      setDeleteDialogOpen(false);
+      if (failed.length > 0) {
+        setErrorMessage(
+          `Deleted ${succeeded.length} task(s). ${failed.length} failed: ${failed.map((f) => f.message).join('; ')}`,
+        );
+      }
+    } catch (e) {
+      setErrorMessage(e instanceof ApiError ? e.message : 'Could not delete tasks.');
+    } finally {
+      setBulkDeleting(false);
+    }
+  }, [selectedTaskIds]);
 
   const selectedTask = useMemo(
     () => assignedTasks.find((task) => task.id === selectedTaskId) ?? null,
@@ -773,116 +653,6 @@ export default function MyTasksPage() {
     }
   };
 
-  /** Chỉ project từ API (catalog), không merge tên từ task row. */
-  const projectsForCreate = useMemo(() => {
-    return [...createProjectsCatalog]
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((p) => [p.idProject, p.name] as [number, string]);
-  }, [createProjectsCatalog]);
-
-  useEffect(() => {
-    if (!createOpen) return;
-    let cancelled = false;
-    setCreateError(null);
-    setCreateCatalogLoading(true);
-    (async () => {
-      try {
-        let all: ProjectResponse[] = [];
-
-        const workspaces = await listWorkspaces().catch(() => [] as Awaited<ReturnType<typeof listWorkspaces>>);
-        if (workspaces.length > 0) {
-          for (const ws of workspaces) {
-            const projects = await getProjectsByWorkspace(ws.workspaceId).catch(() => []);
-            all.push(...projects);
-          }
-        }
-
-        if (all.length === 0) {
-          const userId = getStoredUserId();
-          if (userId) {
-            const owned = await listWorkspacesByOwner(userId).catch(() => []);
-            for (const ws of owned) {
-              const projects = await getProjectsByWorkspace(ws.workspaceId).catch(() => []);
-              all.push(...projects);
-            }
-          }
-        }
-
-        const seen = new Set<number>();
-        const deduped = all.filter((p) => {
-          if (seen.has(p.idProject)) return false;
-          seen.add(p.idProject);
-          return true;
-        });
-        if (!cancelled) setCreateProjectsCatalog(deduped);
-      } catch {
-        if (!cancelled) setCreateProjectsCatalog([]);
-      } finally {
-        setCreateCatalogLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-      setCreateCatalogLoading(false);
-    };
-  }, [createOpen]);
-
-  useEffect(() => {
-    if (createProjectId === '' || typeof createProjectId !== 'number') {
-      setCreateLists([]);
-      setCreateListId('');
-      setCreateStatusId('');
-      setCreateFormStatuses([]);
-      return;
-    }
-    let cancelled = false;
-    setCreateListsLoading(true);
-    void getListsByProject(createProjectId)
-      .then((lists) => {
-        if (cancelled) return;
-        const mapped = lists.map((l) => ({ listProjectId: l.listProjectId, name: l.name }));
-        setCreateLists(mapped);
-        setCreateListId((prev) => {
-          if (typeof prev === 'number' && mapped.some((m) => m.listProjectId === prev)) return prev;
-          return mapped.length === 1 ? mapped[0].listProjectId : '';
-        });
-      })
-      .finally(() => {
-        if (!cancelled) setCreateListsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [createProjectId]);
-
-  useEffect(() => {
-    if (createListId === '' || typeof createListId !== 'number') {
-      setCreateStatusId('');
-      setCreateStatusesLoading(false);
-      setCreateFormStatuses([]);
-      return;
-    }
-    let cancelled = false;
-    setCreateStatusesLoading(true);
-    void getStatusesByList(createListId)
-      .then((st) => {
-        if (cancelled) return;
-        const sorted = sortStatuses(st);
-        setCreateFormStatuses(sorted);
-        const def =
-          sorted.find((s) => normalizeBackendStatusGroupKey(s.statusGroup) === 'to_do') ??
-          sorted.find((s) => s.isDefault) ??
-          sorted[0];
-        setCreateStatusId(def ? def.statusId : '');
-      })
-      .finally(() => {
-        if (!cancelled) setCreateStatusesLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [createListId]);
-
   const sortControlLabel = useMemo(() => {
     const m: Record<string, string> = {
       'dueDate:asc': 'Due (nearest)',
@@ -908,78 +678,6 @@ export default function MyTasksPage() {
     if (dateRangePreset === 'this_month') return 'This month';
     return 'Custom';
   }, [dateRangePreset]);
-
-  const handleCreateDialogOpenChange = (open: boolean) => {
-    setCreateOpen(open);
-    if (!open) {
-      setCreateError(null);
-      setCreateFormStatuses([]);
-    }
-  };
-
-  const handleCreateTaskSubmit = async () => {
-    if (createLoading) return;
-    setCreateError(null);
-    if (
-      !createTitle.trim() ||
-      createProjectId === '' ||
-      createListId === '' ||
-      createStatusId === '' ||
-      typeof createProjectId !== 'number' ||
-      typeof createListId !== 'number' ||
-      typeof createStatusId !== 'number'
-    ) {
-      setCreateError('Please fill title, project, list, and status.');
-      return;
-    }
-    if (createCatalogLoading || createListsLoading || createStatusesLoading) {
-      setCreateError('Please wait for lists and statuses to finish loading.');
-      return;
-    }
-    setCreateLoading(true);
-    try {
-      const user = await getCurrentUser();
-      const created = await createTask(createProjectId, createListId, createStatusId, {
-        title: createTitle.trim(),
-        description: createDescription.trim() || null,
-        taskType: 'task',
-        priority: mapFrontendPriorityToBackend(createPriority),
-        reporterId: user.userId,
-        dueDate: createDue ? `${createDue}T23:59:59` : null,
-      });
-      await addTaskAssignee(created.taskId, { userId: user.userId, isPrimary: true });
-      setCreateOpen(false);
-      setCreateTitle('');
-      setCreateDescription('');
-      setCreateProjectId('');
-      setCreateListId('');
-      setCreateStatusId('');
-      setCreatePriority('medium');
-      setCreateDue('');
-      setCreateError(null);
-      setCreateFormStatuses([]);
-      await loadTasks();
-    } catch (error) {
-      const message = error instanceof ApiError ? error.message : 'Could not create task.';
-      setCreateError(message);
-    } finally {
-      setCreateLoading(false);
-    }
-  };
-
-  const createSubmitDisabled =
-    createLoading ||
-    createCatalogLoading ||
-    createListsLoading ||
-    createStatusesLoading ||
-    projectsForCreate.length === 0 ||
-    !createTitle.trim() ||
-    createProjectId === '' ||
-    createListId === '' ||
-    createStatusId === '' ||
-    typeof createProjectId !== 'number' ||
-    typeof createListId !== 'number' ||
-    typeof createStatusId !== 'number';
 
   const toggleInNumberList = (list: number[], id: number, setter: (next: number[]) => void) => {
     setter(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
@@ -1053,7 +751,7 @@ export default function MyTasksPage() {
                       <div>
                         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Priority</p>
                         <div className="flex flex-col gap-2">
-                          {priorityGroupOrder.map((p) => (
+                          {TASK_PRIORITY_DISPLAY_ORDER.map((p) => (
                             <label key={p} className="flex cursor-pointer items-center gap-2 text-sm text-slate-800">
                               <Checkbox
                                 checked={filterPriorities.includes(p)}
@@ -1063,7 +761,7 @@ export default function MyTasksPage() {
                                   )
                                 }
                               />
-                              <span className="capitalize">{p}</span>
+                              <span>{formatTaskPriorityLabel(p)}</span>
                             </label>
                           ))}
                         </div>
@@ -1339,16 +1037,36 @@ export default function MyTasksPage() {
               </div>
             ) : null}
 
+            {filteredTasks.length > 0 && selectedTaskIds.length > 0 ? (
+              <div className="mt-4">
+                <TaskBulkSelectionBar
+                  count={selectedTaskIds.length}
+                  onDelete={() => setDeleteDialogOpen(true)}
+                  onClear={() => setSelectedTaskIds([])}
+                  deleting={bulkDeleting}
+                />
+              </div>
+            ) : null}
+
             <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
               <ScrollArea className="h-[calc(100vh-290px)] min-h-[420px]">
-                <div className="min-w-[920px]">
-                  {/* Task | Project | List | Status | Priority | Due Date — three distinct metadata columns */}
+                <div className="min-w-[960px]">
+                  {/* Checkbox | Task | Project | List | Status | Priority | Due Date */}
                   <div
                     className={cn(
                       MY_TASKS_TABLE_GRID,
                       'items-center border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500',
                     )}
                   >
+                    <div className="flex items-center justify-center">
+                      <Checkbox
+                        checked={someFilteredSelected ? 'indeterminate' : allFilteredSelected}
+                        onCheckedChange={handleToggleSelectAllFiltered}
+                        disabled={filteredTasks.length === 0}
+                        aria-label="Select all tasks in current view"
+                        className="border-slate-300"
+                      />
+                    </div>
                     <div className="min-w-0">Task</div>
                     <div className="min-w-0">Project</div>
                     <div className="min-w-0">List</div>
@@ -1379,206 +1097,44 @@ export default function MyTasksPage() {
                         {group.items.map((task) => {
                           const statuses = getStatusOptions(task);
                           const currentStatusId = taskStatusIds[task.id] ?? task.statusId;
-                          const currentStatus = statuses.find((status) => status.statusId === currentStatusId) ?? null;
                           const rowSelected = selectedTaskId === task.id;
 
                           return (
-                            <div
+                            <TaskTableRow
                               key={task.id}
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => setSelectedTaskId((prev) => (prev === task.id ? null : task.id))}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ' ') {
-                                  event.preventDefault();
-                                  setSelectedTaskId((prev) => (prev === task.id ? null : task.id));
-                                }
+                              task={task}
+                              statuses={statuses}
+                              currentStatusId={currentStatusId}
+                              selection={{
+                                checked: selectedIdsSet.has(task.id),
+                                onCheckedChange: (checked) => {
+                                  setSelectedTaskIds((prev) =>
+                                    checked
+                                      ? prev.includes(task.id)
+                                        ? prev
+                                        : [...prev, task.id]
+                                      : prev.filter((x) => x !== task.id),
+                                  );
+                                },
                               }}
-                              className={cn(
-                                MY_TASKS_TABLE_GRID,
-                                'cursor-pointer items-center border-b border-slate-100 px-4 py-2.5 text-left transition-colors last:border-b-0 hover:bg-slate-50',
-                                rowSelected && 'bg-blue-50 hover:bg-blue-50',
-                              )}
-                            >
-                              <div className="min-w-0 pr-2">
-                                <p className="truncate text-[15px] font-semibold text-slate-900">{task.title}</p>
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                  {task.tags.slice(0, 2).map((tag) => (
-                                    <Badge
-                                      key={tag}
-                                      variant="outline"
-                                      className="h-5 rounded-md border-slate-200 bg-slate-100 px-1.5 text-[10px] font-medium text-slate-600"
-                                    >
-                                      {tag}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              </div>
-
-                              <div className="flex min-w-0 items-center gap-1.5 text-xs text-slate-700">
-                                <Folder className="size-3.5 shrink-0 text-slate-400" />
-                                <span className="truncate">{task.project}</span>
-                              </div>
-
-                              <div className="flex min-w-0 items-center gap-1.5 text-xs text-slate-700">
-                                <List className="size-3.5 shrink-0 text-slate-400" />
-                                <span className="truncate">{task.list}</span>
-                              </div>
-
-                              <div
-                                className={cn(metaColumnCell, 'flex items-center justify-start')}
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <button
-                                      type="button"
-                                      disabled={Boolean(savingTaskIds[task.id]) || statuses.length === 0}
-                                      className={cn(
-                                        'inline-flex h-7 max-w-full items-center gap-1 rounded-lg border px-2 py-0.5 text-left text-xs font-semibold shadow-none outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60',
-                                        currentStatus
-                                          ? statusBadgeTone(currentStatus.statusGroup)
-                                          : 'border-slate-200 bg-slate-50 text-slate-600',
-                                      )}
-                                    >
-                                      <span className="min-w-0 max-w-[9.5rem] truncate whitespace-nowrap">
-                                        {currentStatus ? formatStatusLabel(currentStatus) : '—'}
-                                      </span>
-                                      <ChevronDown className="size-3 shrink-0 opacity-70" />
-                                    </button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent
-                                    align="start"
-                                    className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[min(100vw-2rem,14rem)] max-w-[16rem] p-1"
-                                    onCloseAutoFocus={(event) => event.preventDefault()}
-                                  >
-                                    {statuses.map((status) => {
-                                      const menuStyles = statusMenuItemStyles(status.statusGroup);
-                                      const selected = status.statusId === currentStatusId;
-                                      return (
-                                        <DropdownMenuItem
-                                          key={status.statusId}
-                                          className="cursor-pointer gap-2 rounded-md px-2 py-1.5 focus:bg-slate-50"
-                                          onSelect={() => void handleTaskStatusChange(task, status.statusId)}
-                                        >
-                                          <span className="flex min-w-0 flex-1 items-center gap-2">
-                                            <span
-                                              className={cn('size-2 shrink-0 rounded-full', menuStyles.dot)}
-                                              aria-hidden
-                                            />
-                                            <span className={cn('truncate text-sm font-medium', menuStyles.label)}>
-                                              {formatStatusLabel(status)}
-                                            </span>
-                                          </span>
-                                          {selected ? (
-                                            <Check className="size-4 shrink-0 text-slate-400" strokeWidth={2.5} />
-                                          ) : (
-                                            <span className="size-4 shrink-0" aria-hidden />
-                                          )}
-                                        </DropdownMenuItem>
-                                      );
-                                    })}
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
-
-                              <div
-                                className={cn(metaColumnCell, 'flex items-center justify-start')}
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <button
-                                      type="button"
-                                      disabled={Boolean(prioritySavingTaskIds[task.id])}
-                                      className={cn(
-                                        'inline-flex h-7 w-fit max-w-full items-center gap-1 rounded-md border border-transparent px-0.5 py-0.5 text-xs font-semibold capitalize outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60',
-                                        priorityTone[task.priority],
-                                      )}
-                                    >
-                                      <Flag className="size-3 shrink-0 opacity-90" />
-                                      <span className="min-w-0 max-w-[6.5rem] truncate whitespace-nowrap">
-                                        {task.priority}
-                                      </span>
-                                      <ChevronDown className="size-3 shrink-0 opacity-70" />
-                                    </button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent
-                                    align="start"
-                                    className="min-w-[10.5rem] max-w-[14rem] p-1"
-                                    onCloseAutoFocus={(event) => event.preventDefault()}
-                                  >
-                                    {(['low', 'medium', 'high', 'urgent'] as const).map((priorityOption) => {
-                                      const pm = priorityMenuItemStyles[priorityOption];
-                                      const selected = task.priority === priorityOption;
-                                      return (
-                                        <DropdownMenuItem
-                                          key={priorityOption}
-                                          className="cursor-pointer gap-2 rounded-md px-2 py-1.5 focus:bg-slate-50"
-                                          onSelect={() => void handleTaskPriorityChange(task, priorityOption)}
-                                        >
-                                          <span className="flex min-w-0 flex-1 items-center gap-2">
-                                            <Flag className={cn('size-4 shrink-0', pm.flag)} strokeWidth={2} />
-                                            <span className={cn('truncate text-sm font-medium capitalize', pm.label)}>
-                                              {priorityOption}
-                                            </span>
-                                          </span>
-                                          {selected ? (
-                                            <Check className="size-4 shrink-0 text-slate-400" strokeWidth={2.5} />
-                                          ) : (
-                                            <span className="size-4 shrink-0" aria-hidden />
-                                          )}
-                                        </DropdownMenuItem>
-                                      );
-                                    })}
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
-
-                              <div
-                                className={cn(metaColumnCell, 'flex items-center justify-start')}
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                <div className="inline-flex w-full max-w-full min-w-0 flex-col gap-1">
-                                  <div
-                                    className={cn(
-                                      'flex items-center gap-1.5 text-xs font-semibold leading-none',
-                                      isOverdue(task.dueDate, task.status) ? 'text-rose-600' : 'text-slate-800',
-                                    )}
-                                  >
-                                    <Calendar className="size-3.5 shrink-0 opacity-70" />
-                                    <span className="whitespace-nowrap">
-                                      {task.dueDate ? formatDateShort(task.dueDate) : '—'}
-                                    </span>
-                                  </div>
-                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                    <Input
-                                      type="date"
-                                      value={dueDateDrafts[task.id] ?? ''}
-                                      disabled={Boolean(dueDateSavingTaskIds[task.id])}
-                                      onChange={(event) =>
-                                        setDueDateDrafts((current) => ({ ...current, [task.id]: event.target.value }))
-                                      }
-                                      onBlur={(event) => {
-                                        if ((dueDateDrafts[task.id] ?? '') === toDateInputValue(task.dueDate)) return;
-                                        void handleTaskDueDateChange(task, event.target.value);
-                                      }}
-                                      className="h-8 w-[9.75rem] max-w-full shrink-0 border-slate-200 bg-slate-50/90 px-2 text-[11px] leading-none shadow-sm"
-                                    />
-                                    {task.timeEstimateDays != null && task.timeEstimateDays > 0 ? (
-                                      <span className="inline-flex items-center gap-0.5 text-[10px] font-medium tabular-nums text-slate-500">
-                                        <Clock3 className="size-3 shrink-0 text-slate-400" />
-                                        {task.timeEstimateDays}d est.
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* ACTIVITY_COLUMN: restore when subtasks/comments/attachments counts are available from API
-                              <div className="flex items-center gap-2 text-xs text-slate-500">...</div>
-                              */}
-                            </div>
+                              rowSelected={rowSelected}
+                              onRowDoubleClick={() =>
+                                setSelectedTaskId((prev) => (prev === task.id ? null : task.id))
+                              }
+                              onStatusChange={handleTaskStatusChange}
+                              onPriorityChange={handleTaskPriorityChange}
+                              dueDateDraft={dueDateDrafts[task.id] ?? ''}
+                              onDueDateDraftChange={(value) =>
+                                setDueDateDrafts((current) => ({ ...current, [task.id]: value }))
+                              }
+                              onDueDateBlur={(value) => {
+                                if (value === toDateInputValue(task.dueDate)) return;
+                                void handleTaskDueDateChange(task, value);
+                              }}
+                              statusSaving={Boolean(savingTaskIds[task.id])}
+                              prioritySaving={Boolean(prioritySavingTaskIds[task.id])}
+                              dueDateSaving={Boolean(dueDateSavingTaskIds[task.id])}
+                            />
                           );
                         })}
                       </div>
@@ -1624,7 +1180,9 @@ export default function MyTasksPage() {
 
                 <div className="space-y-2 border-t border-slate-100 pt-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Priority</p>
-                  <p className={cn('text-sm capitalize', priorityTone[selectedTask.priority])}>{selectedTask.priority}</p>
+                  <p className={cn('text-sm', priorityTone[selectedTask.priority])}>
+                    {formatTaskPriorityLabel(selectedTask.priority)}
+                  </p>
                 </div>
 
                 <div className="space-y-2 border-t border-slate-100 pt-4">
@@ -1684,153 +1242,15 @@ export default function MyTasksPage() {
         ) : null}
       </div>
 
-      <Dialog open={createOpen} onOpenChange={handleCreateDialogOpenChange}>
-        <DialogContent className="max-h-[90vh] overflow-visible sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create task</DialogTitle>
-            <DialogDescription>Add a task and assign it to yourself so it appears in My Tasks.</DialogDescription>
-          </DialogHeader>
-          {createError ? (
-            <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              {createError}
-            </div>
-          ) : null}
-          <div className="grid max-h-[min(70vh,28rem)] gap-3 overflow-y-auto py-2">
-            <div className="grid gap-1.5">
-              <Label htmlFor="create-title">Title</Label>
-              <Input
-                id="create-title"
-                value={createTitle}
-                onChange={(e) => setCreateTitle(e.target.value)}
-                placeholder="Task title"
-                className="border-slate-200"
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="create-project">Project</Label>
-              <Select
-                value={createProjectId === '' ? undefined : String(createProjectId)}
-                onValueChange={(v) => setCreateProjectId(v ? Number(v) : '')}
-                disabled={createCatalogLoading || projectsForCreate.length === 0}
-              >
-                <SelectTrigger id="create-project" className="w-full border-slate-200 bg-white">
-                  <SelectValue
-                    placeholder={createCatalogLoading ? 'Loading projects…' : 'Select project'}
-                  />
-                </SelectTrigger>
-                <SelectContent className="z-[110] max-h-[min(280px,70vh)]">
-                  {projectsForCreate.map(([pid, name]) => (
-                    <SelectItem key={pid} value={String(pid)}>
-                      {name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {createCatalogLoading ? (
-                <p className="text-xs text-slate-500">Loading projects from API…</p>
-              ) : projectsForCreate.length === 0 ? (
-                <p className="text-xs text-amber-800">
-                  No projects returned from API. Create a project first or check your workspaces.
-                </p>
-              ) : null}
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="create-list">List</Label>
-              <Select
-                value={createListId === '' ? undefined : String(createListId)}
-                onValueChange={(v) => setCreateListId(v ? Number(v) : '')}
-                disabled={createProjectId === '' || createListsLoading}
-              >
-                <SelectTrigger id="create-list" className="w-full border-slate-200 bg-white">
-                  <SelectValue placeholder={createListsLoading ? 'Loading…' : 'Select list'} />
-                </SelectTrigger>
-                <SelectContent className="z-[110] max-h-[min(280px,70vh)]">
-                  {createLists.map((l) => (
-                    <SelectItem key={l.listProjectId} value={String(l.listProjectId)}>
-                      {l.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="create-status">Status</Label>
-              <Select
-                value={createStatusId === '' ? undefined : String(createStatusId)}
-                onValueChange={(v) => setCreateStatusId(v ? Number(v) : '')}
-                disabled={createListId === '' || createStatusesLoading}
-              >
-                <SelectTrigger id="create-status" className="w-full border-slate-200 bg-white">
-                  <SelectValue placeholder={createStatusesLoading ? 'Loading…' : 'Select status'} />
-                </SelectTrigger>
-                <SelectContent className="z-[110] max-h-[min(280px,70vh)]">
-                  {createFormStatuses.map((s) => (
-                    <SelectItem key={s.statusId} value={String(s.statusId)}>
-                      {formatStatusLabel(s)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="create-priority">Priority</Label>
-              <Select
-                value={createPriority}
-                onValueChange={(v) => setCreatePriority(v as Task['priority'])}
-              >
-                <SelectTrigger id="create-priority" className="w-full border-slate-200 bg-white capitalize">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="z-[110]">
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium (normal)</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="urgent">Urgent</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="create-due">Due date</Label>
-              <Input
-                id="create-due"
-                type="date"
-                value={createDue}
-                onChange={(e) => setCreateDue(e.target.value)}
-                className="border-slate-200"
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="create-desc">Description (optional)</Label>
-              <Textarea
-                id="create-desc"
-                value={createDescription}
-                onChange={(e) => setCreateDescription(e.target.value)}
-                placeholder="Details…"
-                rows={3}
-                className="resize-none border-slate-200"
-              />
-            </div>
-          </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleCreateDialogOpenChange(false)}
-              disabled={createLoading}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              className="bg-[#0057b8] hover:bg-[#00489a]"
-              disabled={createSubmitDisabled}
-              onClick={() => void handleCreateTaskSubmit()}
-            >
-              {createLoading ? 'Creating…' : 'Create'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CreateTaskDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={() => void loadTasks()} />
+
+      <TaskBulkDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        count={selectedTaskIds.length}
+        onConfirm={runBulkDelete}
+        deleting={bulkDeleting}
+      />
     </div>
   );
 }
