@@ -1,60 +1,69 @@
-import { requestJson, ApiError } from '@/lib/http';
-import type { Task } from '@/types/task';
-import { getProjectsByWorkspace } from '@/lib/project-api';
-import { getWorkspaceSnapshot } from '@/lib/workspace-storage';
+import { requestJson, ApiError } from "@/lib/http";
+import type { Task } from "@/types/task";
+import { getProjectsByWorkspace } from "@/lib/project-api";
+import { getWorkspaceSnapshot } from "@/lib/workspace-storage";
 
-const FALLBACK_AVATAR = '/placeholder.svg';
+const FALLBACK_AVATAR = "/placeholder.svg";
 
-function mapBackendPriorityToFrontend(priority: BackendTaskPriority): Task['priority'] {
+function mapBackendPriorityToFrontend(
+  priority: BackendTaskPriority,
+): Task["priority"] {
   // Backend dùng `normal`, UI dùng `medium`.
-  if (priority === 'normal') return 'medium';
-  return priority as Task['priority'];
+  if (priority === "normal") return "medium";
+  return priority as Task["priority"];
 }
 
-function mapBackendStatusGroupToFrontendStatus(statusGroup: unknown): Task['status'] {
-  const raw = String(statusGroup ?? '').trim();
-  if (!raw) return 'todo';
+function mapBackendStatusGroupToFrontendStatus(
+  statusGroup: unknown,
+): Task["status"] {
+  const raw = String(statusGroup ?? "").trim();
+  if (!raw) return "todo";
 
   const s = raw.toLowerCase();
   // Completed
-  if (s.includes('completed')) return 'completed';
+  if (s.includes("completed")) return "completed";
 
   // Consider these "in progress" lanes
   // - backend: IN_PROGRESS / IN PROGRESS, REVIEW, TESTING, DEPLOY
   if (
-    s.includes('in_progress') ||
-    s.includes('in progress') ||
-    s.includes('in-prog') ||
-    s.includes('review') ||
-    s.includes('testing') ||
-    s.includes('deploy')
+    s.includes("in_progress") ||
+    s.includes("in progress") ||
+    s.includes("in-prog") ||
+    s.includes("review") ||
+    s.includes("testing") ||
+    s.includes("deploy")
   ) {
-    return 'in-progress';
+    return "in-progress";
   }
 
   // Todo-ish buckets
-  return 'todo';
+  return "todo";
 }
 
-function taskResponseToTask(task: TaskResponse, statusById: Map<number, Task['status']>): Task {
+function taskResponseToTask(
+  task: TaskResponse,
+  statusById: Map<number, Task["status"]>,
+): Task {
   return {
     id: String(task.taskId),
     title: task.title,
-    description: task.description ?? '',
-    status: statusById.get(task.statusId) ?? 'todo',
+    description: task.description ?? "",
+    status: statusById.get(task.statusId) ?? "todo",
     statusId: task.statusId,
     listId: task.listId,
     priority: mapBackendPriorityToFrontend(task.priority),
-    assignee: '', // cần endpoint riêng cho assignee; placeholder cho tới khi enrich
+    assignee: "", // cần endpoint riêng cho assignee; placeholder cho tới khi enrich
     assigneeAvatar: FALLBACK_AVATAR,
     project: String(task.projectId), // để match với ProjectsPage
-    dueDate: task.dueDate ?? '',
+    dueDate: task.dueDate ?? "",
     createdAt: task.createdAt,
     tags: [],
   };
 }
 
-async function buildStatusByIdForListIds(listIds: number[]): Promise<Map<number, Task['status']>> {
+async function buildStatusByIdForListIds(
+  listIds: number[],
+): Promise<Map<number, Task["status"]>> {
   const uniq = Array.from(new Set(listIds)).filter((id) => Number.isFinite(id));
   const statusResponses = await Promise.all(
     uniq.map(async (listId) => {
@@ -66,24 +75,24 @@ async function buildStatusByIdForListIds(listIds: number[]): Promise<Map<number,
     }),
   );
 
-  const byId = new Map<number, Task['status']>();
+  const byId = new Map<number, Task["status"]>();
   statusResponses.flat().forEach((s) => {
     byId.set(s.statusId, mapBackendStatusGroupToFrontendStatus(s.statusGroup));
   });
   return byId;
 }
 
-export type BackendTaskPriority = 'low' | 'normal' | 'high' | 'urgent';
-export type BackendTaskType = 'epic' | 'story' | 'task' | 'bug' | 'subtask';
+export type BackendTaskPriority = "low" | "normal" | "high" | "urgent";
+export type BackendTaskType = "epic" | "story" | "task" | "bug" | "subtask";
 export type BackendStatusGroup =
-  | 'idea'
-  | 'backlog'
-  | 'to_do'
-  | 'in_progress'
-  | 'review'
-  | 'testing'
-  | 'deploy'
-  | 'completed';
+  | "idea"
+  | "backlog"
+  | "to_do"
+  | "in_progress"
+  | "review"
+  | "testing"
+  | "deploy"
+  | "completed";
 
 export type TaskResponse = {
   taskId: number;
@@ -152,6 +161,51 @@ export type TaskAssigneeResponse = {
   assignedAt: string;
 };
 
+export type CommentResponse = {
+  commentId: number;
+  taskId: number;
+  userId: number;
+  parentCommentId: number | null;
+  content: string;
+  isEdited: boolean;
+  isDeleted: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CommentCreationRequest = {
+  userId: number;
+  parentCommentId?: number | null;
+  content: string;
+};
+
+export type CommentUpdateRequest = {
+  content: string;
+};
+
+export type AttachmentResponse = {
+  attachmentId: number;
+  taskId: number;
+  uploadedBy: number;
+  fileName: string;
+  fileUrl: string;
+  mimeType: string;
+  createdAt: string;
+};
+
+export type AttachmentCreationRequest = {
+  uploadedBy: number;
+  fileName: string;
+  fileUrl: string;
+  mimeType: string;
+};
+
+export type AttachmentUpdateRequest = Partial<{
+  fileName: string;
+  fileUrl: string;
+  mimeType: string;
+}>;
+
 export type StatusResponse = {
   statusId: number;
   name: string;
@@ -164,7 +218,9 @@ export type StatusResponse = {
 };
 
 export async function getTask(taskId: number): Promise<TaskResponse> {
-  return requestJson<TaskResponse>('GET', `/enflow/tasks/${taskId}`, { auth: true });
+  return requestJson<TaskResponse>("GET", `/enflow/tasks/${taskId}`, {
+    auth: true,
+  });
 }
 
 // Legacy UI helper expects Task shape (not raw TaskResponse).
@@ -173,54 +229,150 @@ export async function getTaskById(taskId: number): Promise<Task> {
   return {
     id: String(task.taskId),
     title: task.title,
-    description: task.description ?? '',
-    status: task.completedAt ? 'done' : task.startDate ? 'in-progress' : 'todo',
+    description: task.description ?? "",
+    status: task.completedAt ? "done" : task.startDate ? "in-progress" : "todo",
     statusId: task.statusId,
     listId: task.listId,
     priority: mapBackendPriorityToFrontend(task.priority),
-    assignee: 'User',
+    assignee: "User",
     assigneeAvatar: FALLBACK_AVATAR,
     project: task.projectName?.trim() || `Project #${task.projectId}`,
-    dueDate: task.dueDate ?? '',
+    dueDate: task.dueDate ?? "",
     createdAt: task.createdAt,
     tags: [],
   };
 }
 
 export async function getTaskTags(taskId: number): Promise<TaskTagResponse[]> {
-  return requestJson<TaskTagResponse[]>('GET', `/enflow/task-tags/tasks/${taskId}`, {
+  return requestJson<TaskTagResponse[]>(
+    "GET",
+    `/enflow/task-tags/tasks/${taskId}`,
+    {
+      auth: true,
+    },
+  );
+}
+
+export async function addTagToTask(
+  taskId: number,
+  tagId: number,
+): Promise<TaskTagResponse> {
+  return requestJson<TaskTagResponse>(
+    "POST",
+    `/enflow/task-tags/tasks/${taskId}`,
+    {
+      body: { tagId },
+      auth: true,
+    },
+  );
+}
+
+export async function removeTagFromTask(
+  taskId: number,
+  tagId: number,
+): Promise<void> {
+  await requestJson<void>(
+    "DELETE",
+    `/enflow/task-tags/tasks/${taskId}/tags/${tagId}`,
+    {
+      auth: true,
+    },
+  );
+}
+
+export async function getTaskAssignees(
+  taskId: number,
+): Promise<TaskAssigneeResponse[]> {
+  return requestJson<TaskAssigneeResponse[]>(
+    "GET",
+    `/enflow/task-assignees/tasks/${taskId}`,
+    {
+      auth: true,
+    },
+  );
+}
+
+export async function getCommentsByTask(taskId: number): Promise<CommentResponse[]> {
+  return requestJson<CommentResponse[]>("GET", `/enflow/comments/tasks/${taskId}`, {
     auth: true,
   });
 }
 
-export async function addTagToTask(taskId: number, tagId: number): Promise<TaskTagResponse> {
-  return requestJson<TaskTagResponse>('POST', `/enflow/task-tags/tasks/${taskId}`, {
-    body: { tagId },
+export async function createComment(
+  taskId: number,
+  body: CommentCreationRequest,
+): Promise<CommentResponse> {
+  return requestJson<CommentResponse>("POST", `/enflow/comments/tasks/${taskId}`, {
+    body,
     auth: true,
   });
 }
 
-export async function removeTagFromTask(taskId: number, tagId: number): Promise<void> {
-  await requestJson<void>('DELETE', `/enflow/task-tags/tasks/${taskId}/tags/${tagId}`, {
+export async function updateComment(
+  commentId: number,
+  body: CommentUpdateRequest,
+): Promise<CommentResponse> {
+  return requestJson<CommentResponse>("PUT", `/enflow/comments/${commentId}`, {
+    body,
     auth: true,
   });
 }
 
-export async function getTaskAssignees(taskId: number): Promise<TaskAssigneeResponse[]> {
-  return requestJson<TaskAssigneeResponse[]>('GET', `/enflow/task-assignees/tasks/${taskId}`, {
+export async function deleteComment(commentId: number): Promise<void> {
+  await requestJson<void>("DELETE", `/enflow/comments/${commentId}`, {
     auth: true,
   });
 }
 
-export async function getStatusesByList(listId: number): Promise<StatusResponse[]> {
-  return requestJson<StatusResponse[]>('GET', `/enflow/statuses/lists/${listId}`, {
+export async function getAttachmentsByTask(taskId: number): Promise<AttachmentResponse[]> {
+  return requestJson<AttachmentResponse[]>("GET", `/enflow/attachments/tasks/${taskId}`, {
     auth: true,
   });
+}
+
+export async function createAttachment(
+  taskId: number,
+  body: AttachmentCreationRequest,
+): Promise<AttachmentResponse> {
+  return requestJson<AttachmentResponse>("POST", `/enflow/attachments/tasks/${taskId}`, {
+    body,
+    auth: true,
+  });
+}
+
+export async function updateAttachment(
+  attachmentId: number,
+  body: AttachmentUpdateRequest,
+): Promise<AttachmentResponse> {
+  return requestJson<AttachmentResponse>("PUT", `/enflow/attachments/${attachmentId}`, {
+    body,
+    auth: true,
+  });
+}
+
+export async function deleteAttachment(attachmentId: number): Promise<void> {
+  await requestJson<void>("DELETE", `/enflow/attachments/${attachmentId}`, {
+    auth: true,
+  });
+}
+
+export async function getStatusesByList(
+  listId: number,
+): Promise<StatusResponse[]> {
+  return requestJson<StatusResponse[]>(
+    "GET",
+    `/enflow/statuses/lists/${listId}`,
+    {
+      auth: true,
+    },
+  );
 }
 
 export async function getTasksByList(listId: number): Promise<Task[]> {
   const [tasks, statusById] = await Promise.all([
-    requestJson<TaskResponse[]>('GET', `/enflow/tasks/lists/${listId}`, { auth: true }),
+    requestJson<TaskResponse[]>("GET", `/enflow/tasks/lists/${listId}`, {
+      auth: true,
+    }),
     buildStatusByIdForListIds([listId]),
   ]);
 
@@ -228,20 +380,36 @@ export async function getTasksByList(listId: number): Promise<Task[]> {
 }
 
 /** Raw task payloads (mapper DashboardTask / filter). */
-export async function listTaskResponsesByProject(projectId: number): Promise<TaskResponse[]> {
-  return requestJson<TaskResponse[]>('GET', `/enflow/tasks/projects/${projectId}`, { auth: true });
+export async function listTaskResponsesByProject(
+  projectId: number,
+): Promise<TaskResponse[]> {
+  return requestJson<TaskResponse[]>(
+    "GET",
+    `/enflow/tasks/projects/${projectId}`,
+    { auth: true },
+  );
 }
 
-export async function listTaskResponsesByList(listId: number): Promise<TaskResponse[]> {
-  return requestJson<TaskResponse[]>('GET', `/enflow/tasks/lists/${listId}`, { auth: true });
+export async function listTaskResponsesByList(
+  listId: number,
+): Promise<TaskResponse[]> {
+  return requestJson<TaskResponse[]>("GET", `/enflow/tasks/lists/${listId}`, {
+    auth: true,
+  });
 }
 
 export async function listTasks(projectId?: number): Promise<Task[]> {
   if (projectId !== undefined && Number.isFinite(projectId)) {
-    const tasks = await requestJson<TaskResponse[]>('GET', `/enflow/tasks/projects/${projectId}`, {
-      auth: true,
-    });
-    const statusById = await buildStatusByIdForListIds((tasks ?? []).map((t) => t.listId));
+    const tasks = await requestJson<TaskResponse[]>(
+      "GET",
+      `/enflow/tasks/projects/${projectId}`,
+      {
+        auth: true,
+      },
+    );
+    const statusById = await buildStatusByIdForListIds(
+      (tasks ?? []).map((t) => t.listId),
+    );
     return (tasks ?? []).map((t) => taskResponseToTask(t, statusById));
   }
 
@@ -253,9 +421,13 @@ export async function listTasks(projectId?: number): Promise<Task[]> {
   const tasksByProject = await Promise.all(
     projects.map(async (p) => {
       try {
-        return await requestJson<TaskResponse[]>('GET', `/enflow/tasks/projects/${p.idProject}`, {
-          auth: true,
-        });
+        return await requestJson<TaskResponse[]>(
+          "GET",
+          `/enflow/tasks/projects/${p.idProject}`,
+          {
+            auth: true,
+          },
+        );
       } catch {
         return [];
       }
@@ -263,7 +435,9 @@ export async function listTasks(projectId?: number): Promise<Task[]> {
   );
 
   const flatTasks = tasksByProject.flat();
-  const statusById = await buildStatusByIdForListIds(flatTasks.map((t) => t.listId));
+  const statusById = await buildStatusByIdForListIds(
+    flatTasks.map((t) => t.listId),
+  );
   return flatTasks.map((t) => taskResponseToTask(t, statusById));
 }
 
@@ -273,16 +447,20 @@ export async function getTasksAssignedToUser(
   workspaceId: number,
 ): Promise<TaskAssigneeResponse[]> {
   const qs = new URLSearchParams({ workspaceId: String(workspaceId) });
-  return requestJson<TaskAssigneeResponse[]>('GET', `/enflow/task-assignees/users/${userId}?${qs}`, {
-    auth: true,
-  });
+  return requestJson<TaskAssigneeResponse[]>(
+    "GET",
+    `/enflow/task-assignees/users/${userId}?${qs}`,
+    {
+      auth: true,
+    },
+  );
 }
 
 export async function updateTask(
   taskId: number,
   body: TaskUpdateRequest,
 ): Promise<TaskResponse> {
-  return requestJson<TaskResponse>('PUT', `/enflow/tasks/${taskId}`, {
+  return requestJson<TaskResponse>("PUT", `/enflow/tasks/${taskId}`, {
     body,
     auth: true,
   });
@@ -318,10 +496,16 @@ export type TaskCreationRequest = {
   archived?: boolean;
 };
 
-export async function getProjectLists(projectId: number): Promise<ProjectListResponse[]> {
-  return requestJson<ProjectListResponse[]>('GET', `/enflow/lists/projects/${projectId}`, {
-    auth: true,
-  });
+export async function getProjectLists(
+  projectId: number,
+): Promise<ProjectListResponse[]> {
+  return requestJson<ProjectListResponse[]>(
+    "GET",
+    `/enflow/lists/projects/${projectId}`,
+    {
+      auth: true,
+    },
+  );
 }
 
 export async function createTask(
@@ -331,7 +515,7 @@ export async function createTask(
   body: TaskCreationRequest,
 ): Promise<TaskResponse> {
   return requestJson<TaskResponse>(
-    'POST',
+    "POST",
     `/enflow/tasks/projects/${projectId}/lists/${listId}/statuses/${statusId}`,
     { body, auth: true },
   );
@@ -341,10 +525,14 @@ export async function addTaskAssignee(
   taskId: number,
   body: { userId: number; isPrimary: boolean },
 ): Promise<TaskAssigneeResponse> {
-  return requestJson<TaskAssigneeResponse>('POST', `/enflow/task-assignees/tasks/${taskId}`, {
-    body,
-    auth: true,
-  });
+  return requestJson<TaskAssigneeResponse>(
+    "POST",
+    `/enflow/task-assignees/tasks/${taskId}`,
+    {
+      body,
+      auth: true,
+    },
+  );
 }
 
 export type TaskAssigneeUpdateRequest = {
@@ -357,20 +545,27 @@ export async function updateTaskAssignee(
   body: TaskAssigneeUpdateRequest,
 ): Promise<TaskAssigneeResponse> {
   return requestJson<TaskAssigneeResponse>(
-    'PUT',
+    "PUT",
     `/enflow/task-assignees/tasks/${taskId}/users/${userId}`,
     { body, auth: true },
   );
 }
 
-export async function removeTaskAssignee(taskId: number, userId: number): Promise<void> {
-  await requestJson<void>('DELETE', `/enflow/task-assignees/tasks/${taskId}/users/${userId}`, {
-    auth: true,
-  });
+export async function removeTaskAssignee(
+  taskId: number,
+  userId: number,
+): Promise<void> {
+  await requestJson<void>(
+    "DELETE",
+    `/enflow/task-assignees/tasks/${taskId}/users/${userId}`,
+    {
+      auth: true,
+    },
+  );
 }
 
 export async function deleteTask(taskId: number): Promise<void> {
-  await requestJson<void>('DELETE', `/enflow/tasks/${taskId}`, { auth: true });
+  await requestJson<void>("DELETE", `/enflow/tasks/${taskId}`, { auth: true });
 }
 
 /** Xóa nhiều task; backend chỉ có DELETE từng id — dùng Promise.allSettled. */
@@ -383,7 +578,7 @@ export async function deleteTasksByIds(taskIds: number[]): Promise<{
   const failed: { taskId: number; message: string }[] = [];
   results.forEach((r, i) => {
     const id = taskIds[i];
-    if (r.status === 'fulfilled') succeeded.push(id);
+    if (r.status === "fulfilled") succeeded.push(id);
     else {
       const reason = r.reason;
       failed.push({
