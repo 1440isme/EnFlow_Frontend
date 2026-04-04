@@ -305,12 +305,15 @@ export async function listTasks(projectId?: number): Promise<Task[]> {
   return flatTasks.map((t) => taskResponseToTask(t, statusById));
 }
 
+/** Scoped to tasks in projects that belong to the given workspace (see backend task → project → workspace). */
 export async function getTasksAssignedToUser(
   userId: number,
+  workspaceId: number,
 ): Promise<TaskAssigneeResponse[]> {
+  const qs = new URLSearchParams({ workspaceId: String(workspaceId) });
   return requestJson<TaskAssigneeResponse[]>(
     "GET",
-    `/enflow/task-assignees/users/${userId}`,
+    `/enflow/task-assignees/users/${userId}?${qs}`,
     {
       auth: true,
     },

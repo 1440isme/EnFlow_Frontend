@@ -49,6 +49,9 @@ import { TaskTableRow, MY_TASKS_TABLE_GRID } from '@/components/tasks/TaskTableR
 import { TaskBulkSelectionBar } from '@/components/tasks/TaskBulkSelectionBar';
 import { TaskBulkDeleteDialog } from '@/components/tasks/TaskBulkDeleteDialog';
 import { CreateTaskDialog } from '@/components/tasks/CreateTaskDialog';
+import { getWorkspaceSnapshot, saveWorkspaceSnapshot, workspaceResponseToSnapshot } from '@/lib/workspace-storage';
+import { getStoredUserId } from '@/lib/auth-session';
+import { listWorkspacesByOwner } from '@/lib/workspace-api';
 
 const metaColumnCell = 'min-w-0 border-l border-slate-200 pl-3';
 
@@ -176,6 +179,17 @@ export default function MyTasksPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
 
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<number | null>(() =>
+    typeof window !== 'undefined' ? getWorkspaceSnapshot().workspaceId : null,
+  );
+
+  useEffect(() => {
+    const sync = () => setActiveWorkspaceId(getWorkspaceSnapshot().workspaceId);
+    sync();
+    window.addEventListener('enflow-workspace-changed', sync);
+    return () => window.removeEventListener('enflow-workspace-changed', sync);
+  }, []);
+
   const loadTasks = useCallback(async () => {
     setIsLoading(true);
     setErrorMessage(null);
@@ -185,7 +199,33 @@ export default function MyTasksPage() {
 
       setViewerName(currentUser.fullName?.trim() || currentUser.username || 'User');
 
-      const taskAssignments = await getTasksAssignedToUser(currentUser.userId);
+      let wsId = getWorkspaceSnapshot().workspaceId ?? activeWorkspaceId ?? undefined;
+      if (!wsId) {
+        const uid = getStoredUserId();
+        if (uid) {
+          try {
+            const list = await listWorkspacesByOwner(uid);
+            const personal = list.find((w) => w.workspaceKey === `personal-${uid}`) ?? list[0];
+            if (personal) {
+              saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+              wsId = personal.workspaceId;
+              setActiveWorkspaceId(personal.workspaceId);
+            }
+          } catch {
+            /* no workspace resolved */
+          }
+        }
+      }
+
+      if (!wsId) {
+        setDashboardTasks([]);
+        setStatusesByList({});
+        setTaskStatusIds({});
+        setDueDateDrafts({});
+        return;
+      }
+
+      const taskAssignments = await getTasksAssignedToUser(currentUser.userId, wsId);
 
       const uniqueTaskIds = Array.from(new Set(taskAssignments.map((item) => item.taskId)));
       const taskBundles = await Promise.all(
@@ -225,7 +265,7 @@ export default function MyTasksPage() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [activeWorkspaceId]);
 
   useEffect(() => {
     void loadTasks();
