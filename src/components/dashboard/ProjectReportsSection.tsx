@@ -5,6 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { useEffect, useState } from 'react';
 import { getTasksByList, listTasks } from '@/lib/task-api';
 import { listProjects } from '@/lib/project-api';
+import { formatTaskPriorityLabel } from '@/lib/task-priority-ui';
 
 type Props = {
   /** Ẩn khối so sánh nhiều dự án; đổi KPI cuối cho phù hợp một dự án */
@@ -60,7 +61,7 @@ export default function ProjectReportsSection({ projectScoped, projectId, listId
   const tasksByPriority = {
     urgent: tasks.filter((t) => t.priority === 'urgent').length,
     high: tasks.filter((t) => t.priority === 'high').length,
-    medium: tasks.filter((t) => t.priority === 'medium').length,
+    medium: tasks.filter((t) => t.priority === 'medium' || t.priority === 'normal').length,
     low: tasks.filter((t) => t.priority === 'low').length,
   };
 
@@ -181,11 +182,11 @@ export default function ProjectReportsSection({ projectScoped, projectId, listId
             </Card>
 
             <Card className="p-6">
-              <h3 className="font-semibold text-gray-900 mb-6">Phân bổ theo độ ưu tiên</h3>
+              <h3 className="font-semibold text-gray-900 mb-6">Priority distribution</h3>
               <div className="space-y-4">
                 <div>
                   <div className="flex justify-between text-sm mb-2">
-                    <span className="text-gray-600">🔴 Khẩn cấp</span>
+                    <span className="text-gray-600">🔴 {formatTaskPriorityLabel('urgent')}</span>
                     <span className="font-medium">{tasksByPriority.urgent} tasks</span>
                   </div>
                   <Progress
@@ -195,7 +196,7 @@ export default function ProjectReportsSection({ projectScoped, projectId, listId
                 </div>
                 <div>
                   <div className="flex justify-between text-sm mb-2">
-                    <span className="text-gray-600">🟠 Cao</span>
+                    <span className="text-gray-600">🟠 {formatTaskPriorityLabel('high')}</span>
                     <span className="font-medium">{tasksByPriority.high} tasks</span>
                   </div>
                   <Progress
@@ -205,7 +206,7 @@ export default function ProjectReportsSection({ projectScoped, projectId, listId
                 </div>
                 <div>
                   <div className="flex justify-between text-sm mb-2">
-                    <span className="text-gray-600">🔵 Trung bình</span>
+                    <span className="text-gray-600">🔵 {formatTaskPriorityLabel('medium')}</span>
                     <span className="font-medium">{tasksByPriority.medium} tasks</span>
                   </div>
                   <Progress
@@ -215,7 +216,7 @@ export default function ProjectReportsSection({ projectScoped, projectId, listId
                 </div>
                 <div>
                   <div className="flex justify-between text-sm mb-2">
-                    <span className="text-gray-600">⚪ Thấp</span>
+                    <span className="text-gray-600">⚪ {formatTaskPriorityLabel('low')}</span>
                     <span className="font-medium">{tasksByPriority.low} tasks</span>
                   </div>
                   <Progress

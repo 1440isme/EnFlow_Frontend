@@ -131,7 +131,7 @@ export default function ProjectsPage() {
               ? {
                   ...project,
                   name: updated.name,
-                  key: updated.projectKey,
+                  key: updated.projectKey ?? project.key,
                   description: updated.description || '',
                 }
               : project
@@ -168,7 +168,7 @@ export default function ProjectsPage() {
           {
             id: created.idProject.toString(),
             name: created.name,
-            key: created.projectKey,
+            key: created.projectKey ?? key.trim().toUpperCase(),
             description: created.description || '',
             color: '#3b82f6',
             tasksCount: 0,

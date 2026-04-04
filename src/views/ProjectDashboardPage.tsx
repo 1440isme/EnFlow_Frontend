@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, LayoutGrid, List, Columns, Calendar, Folder } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
-import { getListsByProject } from '@/lib/list-api';
+import { getProjectListsStatuses } from '@/lib/project-api';
 import type { ProjectListResponse } from '@/types/api';
 
 function ProjectDashboardContent() {
@@ -53,8 +53,8 @@ function ProjectDashboardContent() {
     }
 
     try {
-      const lData = await getListsByProject(Number(projectId));
-      setLists(normalizeCollection<ProjectListResponse>(lData));
+      const response = await getProjectListsStatuses(Number(projectId));
+      setLists(normalizeCollection<ProjectListResponse>(response.lists));
     } catch (err) {
       console.error(err);
     }
@@ -174,7 +174,7 @@ function ProjectDashboardContent() {
         </TabsContent>
 
         <TabsContent value="calendar">
-          <ProjectCalendarPanel scopeLabel={selectedList ? selectedList.name : projectTitle} />
+          <ProjectCalendarPanel listId={selectedListId} scopeLabel={selectedList ? selectedList.name : projectTitle} />
         </TabsContent>
       </Tabs>
     </div>

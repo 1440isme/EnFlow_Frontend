@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { formatTaskPriorityLabel } from '@/lib/task-priority-ui';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
@@ -82,16 +83,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="task-priority">Độ ưu tiên</Label>
+                <Label htmlFor="task-priority">Priority</Label>
                 <Select>
                   <SelectTrigger id="task-priority" className="bg-input-background">
-                    <SelectValue placeholder="Chọn độ ưu tiên" />
+                    <SelectValue placeholder="Select priority" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="low">Thấp</SelectItem>
-                    <SelectItem value="medium">Trung bình</SelectItem>
-                    <SelectItem value="high">Cao</SelectItem>
-                    <SelectItem value="urgent">Khẩn cấp</SelectItem>
+                    <SelectItem value="low">{formatTaskPriorityLabel('low')}</SelectItem>
+                    <SelectItem value="medium">{formatTaskPriorityLabel('medium')}</SelectItem>
+                    <SelectItem value="high">{formatTaskPriorityLabel('high')}</SelectItem>
+                    <SelectItem value="urgent">{formatTaskPriorityLabel('urgent')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
