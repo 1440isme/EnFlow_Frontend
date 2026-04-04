@@ -1,5 +1,6 @@
 import { requestJson } from '@/lib/http';
 import { getWorkspaceSnapshot } from '@/lib/workspace-storage';
+import type { ProjectListStatusesResponse } from '@/types/api';
 import type { Project } from '@/types/task';
 
 /** Khớp ProjectResponse từ backend (idProject trong JSON). */
@@ -31,6 +32,12 @@ export async function getProjectsByWorkspace(workspaceId: number): Promise<Proje
 
 export async function getProjectById(projectId: number): Promise<ProjectResponse> {
   return requestJson<ProjectResponse>('GET', `/enflow/projects/${projectId}`, {
+    auth: true,
+  });
+}
+
+export async function getProjectListsStatuses(projectId: number): Promise<ProjectListStatusesResponse> {
+  return requestJson<ProjectListStatusesResponse>('GET', `/enflow/projects/${projectId}/list-statuses`, {
     auth: true,
   });
 }

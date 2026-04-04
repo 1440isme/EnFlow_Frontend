@@ -162,6 +162,15 @@ export type StatusesResponse = {
   projectId: number;
 };
 
+export type ProjectListWithStatusesResponse = ProjectListResponse & {
+  statuses: StatusesResponse[];
+};
+
+export type ProjectListStatusesResponse = {
+  projectId: number;
+  lists: ProjectListWithStatusesResponse[];
+};
+
 export type StatusesCreationRequest = {
   idProject?: number;
   idListProject?: number;
