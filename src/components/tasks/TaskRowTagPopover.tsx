@@ -17,7 +17,7 @@ export type TaskRowTagPopoverProps = {
   workspaceId: number;
   currentTagNames: string[];
   onTagsUpdated: (rows: TaskTagResponse[]) => void;
-  /** Stop row double-click / drag side-effects */
+  /** stopPropagation trên trigger để không kích hoạt tương tác cha */
   className?: string;
 };
 

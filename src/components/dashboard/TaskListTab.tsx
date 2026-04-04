@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import type { Task } from '@/types/task';
 import type { DashboardTask } from '@/types/dashboard-task';
 import {
@@ -131,7 +131,6 @@ export type TaskListTabProps = {
 };
 
 export default function TaskListTab({ listId }: TaskListTabProps) {
-  const router = useRouter();
   const params = useParams();
   const projectId = params.projectId as string;
   const projectNum = Number(projectId);
@@ -1370,7 +1369,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
                                       },
                                     }}
                                     layout="withAssignees"
-                                    onRowDoubleClick={() => router.push(`/app/tasks/${task.id}`)}
+                                    taskDetailHref={`/app/tasks/${task.id}`}
                                       onStatusChange={handleTaskStatusChange}
                                       onPriorityChange={handleTaskPriorityChange}
                                       dueDateDraft={dueDateDrafts[task.id] ?? ''}

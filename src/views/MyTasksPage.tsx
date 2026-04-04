@@ -1,18 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import {
-  Calendar,
   CalendarDays,
-  CircleAlert,
-  Clock3,
   Search,
   SlidersHorizontal,
   ArrowUpDown,
   LayoutGrid,
   Plus,
-  X,
 } from 'lucide-react';
 import type { Task } from '@/types/task';
 import { Badge } from '@/components/ui/badge';
@@ -76,13 +71,6 @@ const toDateInputValue = (value: string) => {
 
 const toBackendDueDate = (dateValue: string) => (dateValue ? `${dateValue}T23:59:59` : null);
 
-const formatDateShort = (dateValue: string) => {
-  if (!dateValue) return 'No date';
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) return 'No date';
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-};
-
 const isOverdue = (dateValue: string, taskStatus: Task['status']) => {
   if (!dateValue || taskStatus === 'done') return false;
   return new Date(dateValue).getTime() < new Date().getTime();
@@ -140,16 +128,7 @@ const priorityOrder: Record<Task['priority'], number> = {
   low: 3,
 };
 
-const priorityTone: Record<Task['priority'], string> = {
-  low: 'text-slate-500',
-  medium: 'text-blue-600',
-  normal: 'text-blue-600',
-  high: 'text-orange-600',
-  urgent: 'text-rose-600',
-};
-
 export default function MyTasksPage() {
-  const router = useRouter();
   const [viewerName, setViewerName] = useState('User');
   const [dashboardTasks, setDashboardTasks] = useState<DashboardTask[]>([]);
   const [taskStatusIds, setTaskStatusIds] = useState<Record<string, number>>({});
@@ -160,7 +139,6 @@ export default function MyTasksPage() {
   const [prioritySavingTaskIds, setPrioritySavingTaskIds] = useState<Record<string, boolean>>({});
   const [dueDateSavingTaskIds, setDueDateSavingTaskIds] = useState<Record<string, boolean>>({});
   const [dueDateDrafts, setDueDateDrafts] = useState<Record<string, string>>({});
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -545,7 +523,6 @@ export default function MyTasksPage() {
         return next;
       });
       setSelectedTaskIds((prev) => prev.filter((id) => !succSet.has(Number(id))));
-      setSelectedTaskId((prev) => (prev && succSet.has(Number(prev)) ? null : prev));
       setDeleteDialogOpen(false);
       if (failed.length > 0) {
         setErrorMessage(
@@ -558,11 +535,6 @@ export default function MyTasksPage() {
       setBulkDeleting(false);
     }
   }, [selectedTaskIds]);
-
-  const selectedTask = useMemo(
-    () => assignedTasks.find((task) => task.id === selectedTaskId) ?? null,
-    [assignedTasks, selectedTaskId],
-  );
 
   const getStatusOptions = (task: DashboardTask) => sortStatuses(statusesByList[task.listId] ?? []);
 
@@ -756,9 +728,7 @@ export default function MyTasksPage() {
 
   return (
     <div className="min-h-full bg-white">
-      <div className="flex">
-        <div className={cn('min-w-0 flex-1', selectedTask ? 'xl:pr-[360px]' : '')}>
-          <div className="px-5 py-5">
+      <div className="px-5 py-5">
             <h1 className="text-3xl font-semibold text-slate-900">My Tasks</h1>
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
               <span className="text-slate-500">{tabCounts.dueToday} due today</span>
@@ -1171,7 +1141,6 @@ export default function MyTasksPage() {
                         {group.items.map((task) => {
                           const statuses = getStatusOptions(task);
                           const currentStatusId = taskStatusIds[task.id] ?? task.statusId;
-                          const rowSelected = selectedTaskId === task.id;
 
                           return (
                             <TaskTableRow
@@ -1191,10 +1160,7 @@ export default function MyTasksPage() {
                                   );
                                 },
                               }}
-                              rowSelected={rowSelected}
-                              onRowDoubleClick={() =>
-                                setSelectedTaskId((prev) => (prev === task.id ? null : task.id))
-                              }
+                              taskDetailHref={`/app/tasks/${task.id}`}
                               onStatusChange={handleTaskStatusChange}
                               onPriorityChange={handleTaskPriorityChange}
                               dueDateDraft={dueDateDrafts[task.id] ?? ''}
@@ -1222,104 +1188,6 @@ export default function MyTasksPage() {
                 </div>
               </ScrollArea>
             </div>
-          </div>
-        </div>
-
-        {selectedTask ? (
-          <aside className="fixed top-16 right-0 bottom-0 z-30 hidden w-[350px] flex-col border-l border-slate-200 bg-white shadow-sm xl:flex">
-            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
-              <span className="truncate text-sm font-semibold text-slate-900">Quick edit</span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-8 shrink-0 text-slate-500 hover:text-slate-900"
-                aria-label="Close panel"
-                onClick={() => setSelectedTaskId(null)}
-              >
-                <X className="size-4" />
-              </Button>
-            </div>
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="space-y-5 p-5">
-                <div>
-                  <h2 className="text-2xl font-semibold text-slate-900">{selectedTask.title}</h2>
-                  <p className="mt-1 text-sm text-slate-500">{selectedTask.description || 'No description'}</p>
-                </div>
-
-                <div className="space-y-2 border-t border-slate-100 pt-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Location</p>
-                  <div className="text-sm text-slate-800">{selectedTask.project}</div>
-                  <div className="text-sm text-slate-600">{selectedTask.list}</div>
-                </div>
-
-                <div className="space-y-2 border-t border-slate-100 pt-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Status</p>
-                  <p className="text-sm text-slate-800">{selectedTask.status}</p>
-                </div>
-
-                <div className="space-y-2 border-t border-slate-100 pt-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Priority</p>
-                  <p className={cn('text-sm', priorityTone[selectedTask.priority])}>
-                    {formatTaskPriorityLabel(selectedTask.priority)}
-                  </p>
-                </div>
-
-                <div className="space-y-2 border-t border-slate-100 pt-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Due Date</p>
-                  <div className="flex items-center gap-2 text-sm text-slate-800">
-                    <Calendar className="size-4 shrink-0 text-slate-400" />
-                    <span className="font-medium">{formatDateShort(selectedTask.dueDate)}</span>
-                  </div>
-                  {selectedTask.timeEstimateDays != null && selectedTask.timeEstimateDays > 0 ? (
-                    <div className="flex items-center gap-2 text-xs text-slate-500">
-                      <Clock3 className="size-3.5 text-slate-400" />
-                      <span>{selectedTask.timeEstimateDays}d estimated</span>
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="space-y-2 border-t border-slate-100 pt-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Assignee</p>
-                  <div className="flex items-center gap-2 text-sm text-slate-800">
-                    <div className="flex size-7 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700">
-                      {selectedTask.assignee.charAt(0).toUpperCase()}
-                    </div>
-                    {selectedTask.assignee}
-                  </div>
-                </div>
-
-                <div className="space-y-2 border-t border-slate-100 pt-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Labels</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {selectedTask.tags.map((tag) => (
-                      <Badge key={tag} variant="outline" className="rounded-md border-slate-200 bg-slate-100 text-[10px] text-slate-600">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-
-                {/* RECENT_ACTIVITY_PANEL: re-enable when task activity / comments API is wired (avoid mock “recent activity”)
-                <div className="space-y-2 border-t border-slate-100 pt-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Recent Activity</p>
-                  ...
-                </div>
-                */}
-
-                <div className="border-t border-slate-100 pt-4">
-                  <div className="mb-2 inline-flex items-center gap-1 text-xs text-slate-500">
-                    <CircleAlert className="size-3.5" />
-                    Changes auto-save instantly
-                  </div>
-                  <Button className="w-full" onClick={() => router.push(`/app/tasks/${selectedTask.id}`)}>
-                    View Full Details
-                  </Button>
-                </div>
-              </div>
-            </ScrollArea>
-          </aside>
-        ) : null}
       </div>
 
       <CreateTaskDialog

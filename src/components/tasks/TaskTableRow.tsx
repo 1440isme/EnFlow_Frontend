@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Calendar, ChevronDown, Check, Clock3, Flag, Folder, GitBranch, List, ListTree, X } from 'lucide-react';
 import type { Task } from '@/types/task';
 import type { DashboardTask, TaskTagEntry } from '@/types/dashboard-task';
@@ -76,9 +77,8 @@ export type TaskTableRowProps = {
   currentStatusId: number;
   /** Checkbox chọn task (bulk actions). */
   selection: TaskTableRowSelection;
-  rowSelected?: boolean;
-  /** Mở chi tiết / quick edit — chỉ gọi khi double-click (tránh xung đột với chỉnh status/priority inline). */
-  onRowDoubleClick: () => void;
+  /** Trang chi tiết task — chỉ tiêu đề task là link (click vào tên mới điều hướng). */
+  taskDetailHref: string;
   onStatusChange: (task: DashboardTask, statusId: number) => void;
   onPriorityChange: (task: DashboardTask, priority: Task['priority']) => void;
   dueDateDraft: string;
@@ -107,8 +107,7 @@ export function TaskTableRow({
   statuses,
   currentStatusId,
   selection,
-  rowSelected,
-  onRowDoubleClick,
+  taskDetailHref,
   onStatusChange,
   onPriorityChange,
   dueDateDraft,
@@ -159,14 +158,12 @@ export function TaskTableRow({
 
   return (
     <div
-      tabIndex={-1}
-      onDoubleClick={onRowDoubleClick}
       className={cn(
         gridClass,
         'group/taskrow cursor-default select-none items-center border-b border-slate-100 px-4 py-2.5 text-left transition-colors last:border-b-0 hover:bg-slate-50',
-        rowSelected && 'bg-blue-50 hover:bg-blue-50',
       )}
-      aria-label={`${task.title}. Double-click to open.`}
+      role="row"
+      aria-label={task.title}
     >
       <div
         className="flex items-center justify-center self-center"
@@ -185,7 +182,13 @@ export function TaskTableRow({
         <div className="flex items-start gap-1">
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
-              <p className="min-w-0 truncate text-[15px] font-semibold text-slate-900">{task.title}</p>
+              <Link
+                href={taskDetailHref}
+                className="min-w-0 cursor-pointer truncate text-left text-[15px] font-semibold text-slate-900 underline-offset-2 transition-colors hover:text-[#0057b8] hover:underline focus-visible:rounded-sm focus-visible:text-[#0057b8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0057b8]/35"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {task.title}
+              </Link>
               {subtaskCount > 0 ? (
                 <span
                   className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600"
