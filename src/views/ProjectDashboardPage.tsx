@@ -13,8 +13,9 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, LayoutGrid, List, Columns, Calendar, Folder } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
-import { getProjectListsStatuses } from '@/lib/project-api';
+import { getProjectById, getProjectListsStatuses } from '@/lib/project-api';
 import type { ProjectListResponse } from '@/types/api';
+import { getWorkspaceSnapshot } from '@/lib/workspace-storage';
 
 function ProjectDashboardContent() {
   const params = useParams();
@@ -64,6 +65,32 @@ function ProjectDashboardContent() {
     void loadProjectLists();
   }, [loadProjectLists]);
 
+  /** When switching workspace: if this project is not in that workspace, go back to projects. */
+  useEffect(() => {
+    if (!Number.isFinite(projectIdNumber) || projectIdNumber <= 0) return;
+
+    const verify = async () => {
+      const snapWs = getWorkspaceSnapshot().workspaceId;
+      if (snapWs == null) return;
+      try {
+        const p = await getProjectById(projectIdNumber);
+        if (p.workspaceId !== snapWs) {
+          router.replace('/app/projects');
+        }
+      } catch {
+        router.replace('/app/projects');
+      }
+    };
+
+    const onWorkspaceChanged = () => {
+      void verify();
+    };
+
+    window.addEventListener('enflow-workspace-changed', onWorkspaceChanged);
+    void verify();
+    return () => window.removeEventListener('enflow-workspace-changed', onWorkspaceChanged);
+  }, [projectIdNumber, router]);
+
   useEffect(() => {
     const handleListsChanged = () => {
       void loadProjectLists();
@@ -78,7 +105,7 @@ function ProjectDashboardContent() {
   const projectTitle =
     nameFromQuery && nameFromQuery.trim().length > 0
       ? decodeURIComponent(nameFromQuery.trim())
-      : `Dự án ${projectId}`;
+      : `Project ${projectId}`;
 
   const handleViewChange = (value: string) => {
     const nextParams = new URLSearchParams(searchParams.toString());
@@ -103,7 +130,7 @@ function ProjectDashboardContent() {
       <div className="flex items-center gap-4">
         <Select value={selectedView} onValueChange={handleViewChange}>
           <SelectTrigger className="w-[280px] bg-white">
-            <SelectValue placeholder="Chọn vùng tra cứu" />
+            <SelectValue placeholder="Select scope" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="project">
@@ -160,9 +187,17 @@ function ProjectDashboardContent() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-8">
-          <OverviewTab projectId={projectIdNumber} listId={selectedListId} />
+          <OverviewTab
+            projectId={projectIdNumber}
+            listId={selectedListId}
+            listCount={lists.length}
+          />
           <Separator />
-          <ProjectReportsSection projectScoped projectId={projectIdNumber} listId={selectedListId} />
+          <ProjectReportsSection
+            projectId={projectIdNumber}
+            listId={selectedListId}
+            listCount={lists.length}
+          />
         </TabsContent>
 
         <TabsContent value="list">
@@ -185,7 +220,7 @@ export default function ProjectDashboardPage() {
   return (
     <Suspense
       fallback={
-        <div className="p-6 text-gray-600">Đang tải dashboard dự án…</div>
+        <div className="p-6 text-gray-600">Loading project…</div>
       }
     >
       <ProjectDashboardContent />

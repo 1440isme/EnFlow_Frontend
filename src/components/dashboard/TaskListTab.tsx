@@ -47,24 +47,18 @@ import {
 import { cn } from '../ui/utils';
 import {
   mapBackendPriority,
-  mapBackendStatusGroup,
   mapFrontendPriorityToBackend,
   pickPrimaryAssignee,
   toDashboardTask,
 } from '@/lib/dashboard-task-mapper';
-import {
-  formatStatusLabel,
-  formatTaskStatusLabel,
-  sectionStatusDotClass,
-  sortStatuses,
-  STATUS_GROUP_ORDER,
-} from '@/lib/task-status-ui';
+import { formatStatusLabel, sectionStatusDotPresentation, sortStatuses, statusVisualBucketFromGroup } from '@/lib/task-status-ui';
 import { formatTaskPriorityLabel, TASK_PRIORITY_DISPLAY_ORDER } from '@/lib/task-priority-ui';
 import { TaskTableRow, TASK_TABLE_GRID_WITH_ASSIGNEE } from '@/components/tasks/TaskTableRow';
 import type { WorkspaceMemberOption } from '@/components/tasks/TaskAssigneeCell';
 import { TaskBulkSelectionBar } from '@/components/tasks/TaskBulkSelectionBar';
 import { TaskBulkDeleteDialog } from '@/components/tasks/TaskBulkDeleteDialog';
 import { CreateTaskDialog } from '@/components/tasks/CreateTaskDialog';
+import { isTaskCompleted, isTaskDueOverdue } from '@/lib/overview-task-utils';
 
 const metaColumnCell = 'min-w-0 border-l border-slate-200 pl-3';
 
@@ -93,10 +87,8 @@ const toDateInputValue = (value: string) => {
 
 const toBackendDueDate = (dateValue: string) => (dateValue ? `${dateValue}T23:59:59` : null);
 
-const isOverdue = (dateValue: string, taskStatus: Task['status']) => {
-  if (!dateValue || taskStatus === 'done') return false;
-  return new Date(dateValue).getTime() < new Date().getTime();
-};
+const isOverdue = (task: Pick<DashboardTask, 'dueDate' | 'status' | 'statusGroup' | 'completedAt'>) =>
+  isTaskDueOverdue(task);
 
 const formatYmd = (d: Date) => {
   const y = d.getFullYear();
@@ -164,7 +156,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
   const [selectedListForDelete, setSelectedListForDelete] = useState<ProjectListResponse | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  const [filterStatusIds, setFilterStatusIds] = useState<Task['status'][]>([]);
+  const [filterTaskStatusIds, setFilterTaskStatusIds] = useState<number[]>([]);
   const [filterListIds, setFilterListIds] = useState<number[]>([]);
   const [filterTagNames, setFilterTagNames] = useState<string[]>([]);
   const [filterPriorities, setFilterPriorities] = useState<Task['priority'][]>([]);
@@ -255,12 +247,15 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
             getTaskTags(t.taskId).catch(() => []),
             getTaskAssignees(t.taskId).catch(() => []),
           ]);
+          const listStatuses = byList[t.listId] ?? [];
+          const matched = listStatuses.find((s) => s.statusId === t.statusId) ?? null;
           const row = toDashboardTask(
             t,
             assignees,
             me.userId,
             me.fullName?.trim() || me.username || 'User',
             tags,
+            matched,
           );
           return { row, assignees };
         }),
@@ -445,9 +440,8 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
       return {
         ...task,
         statusId: sid,
-        status: matched
-          ? mapBackendStatusGroup(matched.statusGroup)
-          : task.status,
+        status: matched ? formatStatusLabel(matched) : task.status,
+        statusGroup: matched ? String(matched.statusGroup ?? '') : task.statusGroup,
       };
     });
   }, [tasks, taskStatusIds, statusesByListState]);
@@ -468,18 +462,14 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
   }, [tasks, currentUser]);
 
   const statusFilterOptions = useMemo(() => {
-    const seen = new Set<Task['status']>();
+    const uniq = new Map<number, StatusesResponse>();
     statuses.forEach((s) => {
-      seen.add(mapBackendStatusGroup(s.statusGroup));
+      if (!uniq.has(s.statusId)) uniq.set(s.statusId, s);
     });
-    assignedTasks.forEach((t) => {
-      seen.add(t.status);
-    });
-    return STATUS_GROUP_ORDER.filter((status) => seen.has(status)).map((status) => ({
-      value: status,
-      label: formatTaskStatusLabel(status),
-    }));
-  }, [statuses, assignedTasks]);
+    return [...uniq.values()]
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      .map((s) => ({ value: s.statusId, label: formatStatusLabel(s) }));
+  }, [statuses]);
 
   const listFilterOptions = useMemo(() => {
     return [...lists]
@@ -491,7 +481,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
 
   const filterActiveCount = useMemo(() => {
     return (
-      filterStatusIds.length +
+      filterTaskStatusIds.length +
       filterListIds.length +
       filterTagNames.length +
       filterPriorities.length +
@@ -501,7 +491,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
       (assignedToMeOnly ? 1 : 0)
     );
   }, [
-    filterStatusIds,
+    filterTaskStatusIds,
     filterListIds,
     filterTagNames,
     filterPriorities,
@@ -517,7 +507,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
         const ids = assigneeUserIdsByTask[task.id] ?? [];
         if (!ids.includes(currentUser.userId)) return false;
       }
-      if (filterStatusIds.length > 0 && !filterStatusIds.includes(task.status)) return false;
+      if (filterTaskStatusIds.length > 0 && !filterTaskStatusIds.includes(task.statusId)) return false;
       if (filterListIds.length > 0 && !filterListIds.includes(task.listId)) return false;
       if (filterPriorities.length > 0 && !filterPriorities.includes(task.priority)) return false;
       if (filterAssigneeIds.length > 0) {
@@ -531,7 +521,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
       }
       if (duePreset === 'no_due' && task.dueDate) return false;
       if (duePreset === 'has_due' && !task.dueDate) return false;
-      if (duePreset === 'overdue' && !isOverdue(task.dueDate, task.status)) return false;
+      if (duePreset === 'overdue' && !isOverdue(task)) return false;
       if (['today', 'week', 'month', 'custom'].includes(duePreset) && task.dueDate) {
         const due = new Date(task.dueDate);
         if (Number.isNaN(due.getTime())) return false;
@@ -552,7 +542,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
     assignedToMeOnly,
     currentUser,
     assigneeUserIdsByTask,
-    filterStatusIds,
+    filterTaskStatusIds,
     filterListIds,
     filterPriorities,
     filterAssigneeIds,
@@ -580,7 +570,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
       JSON.stringify({
         projectNum,
         listId: listId ?? null,
-        filterStatusIds,
+        filterTaskStatusIds,
         filterListIds,
         filterTagNames,
         filterPriorities,
@@ -594,7 +584,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
     [
       projectNum,
       listId,
-      filterStatusIds,
+      filterTaskStatusIds,
       filterListIds,
       filterTagNames,
       filterPriorities,
@@ -731,10 +721,10 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
     if (!nextStatus) return;
     const previousStatusId = taskStatusIds[task.id] ?? task.statusId;
     if (nextStatusId === previousStatusId) return;
-    const nextStatusGroup = mapBackendStatusGroup(nextStatus.statusGroup);
+    const bucket = statusVisualBucketFromGroup(String(nextStatus.statusGroup ?? ''));
     const now = new Date().toISOString().slice(0, 19);
-    const nextStartDate = nextStatusGroup === 'todo' ? '' : task.startDate || now;
-    const nextCompletedAt = nextStatusGroup === 'done' ? now : '';
+    const nextStartDate = bucket === 'todo' ? '' : task.startDate || now;
+    const nextCompletedAt = bucket === 'completed' ? now : '';
 
     setTaskStatusIds((c) => ({ ...c, [task.id]: nextStatus.statusId }));
     setSavingTaskIds((c) => ({ ...c, [task.id]: true }));
@@ -761,7 +751,9 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
                 statusId: updatedTask.statusId,
                 startDate: updatedTask.startDate ?? '',
                 completedAt: updatedTask.completedAt ?? '',
-                status: mapBackendStatusGroup(nextStatus.statusGroup),
+                status: formatStatusLabel(nextStatus),
+                statusGroup: String(nextStatus.statusGroup ?? ''),
+                statusColor: nextStatus.color ?? null,
                 taskType: updatedTask.taskType,
                 timeEstimateDays: updatedTask.timeEstimateDays,
                 updatedAt: updatedTask.updatedAt,
@@ -986,9 +978,9 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
                       statusFilterOptions.map((s) => (
                         <label key={s.value} className="flex cursor-pointer items-start gap-2 text-slate-800">
                           <Checkbox
-                            checked={filterStatusIds.includes(s.value)}
+                            checked={filterTaskStatusIds.includes(s.value)}
                             onCheckedChange={() =>
-                              setFilterStatusIds((prev) =>
+                              setFilterTaskStatusIds((prev) =>
                                 prev.includes(s.value) ? prev.filter((x) => x !== s.value) : [...prev, s.value],
                               )
                             }
@@ -1139,7 +1131,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
                   variant="ghost"
                   className="h-8 w-full text-xs text-slate-600"
                   onClick={() => {
-                    setFilterStatusIds([]);
+                    setFilterTaskStatusIds([]);
                     setFilterListIds([]);
                     setFilterTagNames([]);
                     setFilterPriorities([]);
@@ -1293,6 +1285,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
                 {listStatuses.length > 0 ? (
                   listStatuses.map((status) => {
                     const groupTasks = tasksByStatusId[String(status.statusId)] || [];
+                    const sectionDot = sectionStatusDotPresentation(status.statusGroup, status.color);
                     const sgKey = statusGroupKey(list.listProjectId, status.statusId);
                     const statusCollapsed = Boolean(collapsedStatusGroups[sgKey]);
                     return (
@@ -1313,10 +1306,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
                                 <ChevronDown className="h-4 w-4" aria-hidden />
                               )}
                             </span>
-                            <span
-                              className={cn('h-2.5 w-2.5 shrink-0 rounded-full', sectionStatusDotClass(status.statusGroup))}
-                              aria-hidden
-                            />
+                            <span className={sectionDot.className} style={sectionDot.style} aria-hidden />
                             <span className="truncate text-sm font-semibold text-slate-800">{formatStatusLabel(status)}</span>
                           </span>
                           <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-slate-600">

@@ -17,8 +17,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/components/ui/utils';
 import {
   formatStatusLabel,
-  statusBadgeTone,
-  statusMenuItemStyles,
+  statusBadgePresentation,
+  statusMenuItemPresentation,
 } from '@/lib/task-status-ui';
 import { formatTaskPriorityLabel } from '@/lib/task-priority-ui';
 import { AssigneeAvatarStack } from './AssigneeAvatarStack';
@@ -27,6 +27,7 @@ import { TaskRowTagPopover } from './TaskRowTagPopover';
 import { Button } from '@/components/ui/button';
 import { getTaskTags, removeTagFromTask, type TaskTagResponse } from '@/lib/task-api';
 import { contrastTextOnHex } from '@/lib/tag-color';
+import { isTaskDueOverdue } from '@/lib/overview-task-utils';
 
 /** Cột đầu: checkbox chọn task (My Tasks + Project Dashboard List). */
 export const MY_TASKS_TABLE_GRID =
@@ -61,10 +62,7 @@ const formatDateShort = (dateValue: string) => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
-const isOverdue = (dateValue: string, taskStatus: Task['status']) => {
-  if (!dateValue || taskStatus === 'done') return false;
-  return new Date(dateValue).getTime() < new Date().getTime();
-};
+const isOverdue = (task: DashboardTask) => isTaskDueOverdue(task);
 
 export type TaskTableRowSelection = {
   checked: boolean;
@@ -128,6 +126,9 @@ export function TaskTableRow({
 }: TaskTableRowProps) {
   const [removingTagId, setRemovingTagId] = useState<number | null>(null);
   const currentStatus = statuses.find((status) => status.statusId === currentStatusId) ?? null;
+  const statusBadge = currentStatus
+    ? statusBadgePresentation(currentStatus.statusGroup, currentStatus.color)
+    : { className: 'border-slate-200 bg-slate-50 text-slate-600', style: undefined };
   const gridClass = layout === 'withAssignees' ? TASK_TABLE_GRID_WITH_ASSIGNEE : MY_TASKS_TABLE_GRID;
 
   const showRowQuickActions = Boolean(onAddSubtask || (workspaceId != null && workspaceId > 0 && onTaskTagsChange));
@@ -318,10 +319,9 @@ export function TaskTableRow({
               disabled={Boolean(statusSaving) || statuses.length === 0}
               className={cn(
                 'inline-flex h-7 max-w-full items-center gap-1 rounded-lg border px-2 py-0.5 text-left text-xs font-semibold shadow-none outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60',
-                currentStatus
-                  ? statusBadgeTone(currentStatus.statusGroup)
-                  : 'border-slate-200 bg-slate-50 text-slate-600',
+                statusBadge.className,
               )}
+              style={statusBadge.style}
             >
               <span className="min-w-0 max-w-[9.5rem] truncate whitespace-nowrap">
                 {currentStatus ? formatStatusLabel(currentStatus) : '—'}
@@ -335,7 +335,7 @@ export function TaskTableRow({
             onCloseAutoFocus={(event) => event.preventDefault()}
           >
             {statuses.map((status) => {
-              const menuStyles = statusMenuItemStyles(status.statusGroup);
+              const menu = statusMenuItemPresentation(status.statusGroup, status.color);
               const selected = status.statusId === currentStatusId;
               return (
                 <DropdownMenuItem
@@ -344,8 +344,12 @@ export function TaskTableRow({
                   onSelect={() => onStatusChange(task, status.statusId)}
                 >
                   <span className="flex min-w-0 flex-1 items-center gap-2">
-                    <span className={cn('size-2 shrink-0 rounded-full', menuStyles.dot)} aria-hidden />
-                    <span className={cn('truncate text-sm font-medium', menuStyles.label)}>
+                    <span
+                      className={menu.dotClassName}
+                      style={menu.dotStyle}
+                      aria-hidden
+                    />
+                    <span className={cn('truncate text-sm font-medium', menu.labelClassName)}>
                       {formatStatusLabel(status)}
                     </span>
                   </span>
@@ -418,7 +422,7 @@ export function TaskTableRow({
           <div
             className={cn(
               'flex items-center gap-1.5 text-xs font-semibold leading-none',
-              isOverdue(task.dueDate, task.status) ? 'text-rose-600' : 'text-slate-800',
+              isOverdue(task) ? 'text-rose-600' : 'text-slate-800',
             )}
           >
             <Calendar className="size-3.5 shrink-0 opacity-70" />

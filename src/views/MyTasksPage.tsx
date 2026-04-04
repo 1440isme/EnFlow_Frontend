@@ -32,13 +32,13 @@ import { ApiError } from '@/lib/http';
 import type { StatusesResponse } from '@/types/api';
 import type { DashboardTask } from '@/types/dashboard-task';
 import {
+  inferStatusGroupFromDates,
   inferTaskStatusFromDates,
   mapBackendPriority,
-  mapBackendStatusGroup,
   mapFrontendPriorityToBackend,
   toDashboardTask,
 } from '@/lib/dashboard-task-mapper';
-import { sortStatuses } from '@/lib/task-status-ui';
+import { formatStatusLabel, sortStatuses, statusVisualBucketFromGroup } from '@/lib/task-status-ui';
 import { formatTaskPriorityLabel, TASK_PRIORITY_DISPLAY_ORDER } from '@/lib/task-priority-ui';
 import { TaskTableRow, MY_TASKS_TABLE_GRID } from '@/components/tasks/TaskTableRow';
 import { TaskBulkSelectionBar } from '@/components/tasks/TaskBulkSelectionBar';
@@ -47,8 +47,10 @@ import { CreateTaskDialog } from '@/components/tasks/CreateTaskDialog';
 import { getWorkspaceSnapshot, saveWorkspaceSnapshot, workspaceResponseToSnapshot } from '@/lib/workspace-storage';
 import { getStoredUserId } from '@/lib/auth-session';
 import { listWorkspacesByOwner } from '@/lib/workspace-api';
+import { personalWorkspaceKey } from '@/lib/workspace-keys';
 import { countDirectSubtasksByParentId } from '@/lib/task-subtask-utils';
 import type { TaskTagResponse } from '@/lib/task-api';
+import { isTaskCompleted, isTaskDueOverdue } from '@/lib/overview-task-utils';
 
 const metaColumnCell = 'min-w-0 border-l border-slate-200 pl-3';
 
@@ -71,10 +73,7 @@ const toDateInputValue = (value: string) => {
 
 const toBackendDueDate = (dateValue: string) => (dateValue ? `${dateValue}T23:59:59` : null);
 
-const isOverdue = (dateValue: string, taskStatus: Task['status']) => {
-  if (!dateValue || taskStatus === 'done') return false;
-  return new Date(dateValue).getTime() < new Date().getTime();
-};
+const isOverdue = (task: DashboardTask) => isTaskDueOverdue(task);
 
 const formatYmd = (d: Date) => {
   const y = d.getFullYear();
@@ -112,14 +111,6 @@ const getDateRangeBounds = (
   return { from: formatYmd(monday), to: formatYmd(sunday) };
 };
 
-const statusLabel: Record<Task['status'], string> = {
-  todo: 'To do',
-  'in-progress': 'In progress',
-  done: 'Done',
-};
-
-const statusGroupOrder: Task['status'][] = ['todo', 'in-progress', 'done'];
-
 const priorityOrder: Record<Task['priority'], number> = {
   urgent: 0,
   high: 1,
@@ -144,7 +135,7 @@ export default function MyTasksPage() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatuses, setFilterStatuses] = useState<Task['status'][]>([]);
+  const [filterTaskStatusIds, setFilterTaskStatusIds] = useState<number[]>([]);
   const [filterPriorities, setFilterPriorities] = useState<Task['priority'][]>([]);
   const [filterProjectIds, setFilterProjectIds] = useState<number[]>([]);
   const [filterListIds, setFilterListIds] = useState<number[]>([]);
@@ -187,7 +178,7 @@ export default function MyTasksPage() {
         if (uid) {
           try {
             const list = await listWorkspacesByOwner(uid);
-            const personal = list.find((w) => w.workspaceKey === `personal-${uid}`) ?? list[0];
+            const personal = list.find((w) => w.workspaceKey === personalWorkspaceKey(uid)) ?? list[0];
             if (personal) {
               saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
               wsId = personal.workspaceId;
@@ -286,12 +277,14 @@ export default function MyTasksPage() {
       const statuses = statusesByList[task.listId] ?? [];
       const matchedStatus = statuses.find((status) => status.statusId === currentStatusId);
 
+      const fallbackGroup = inferStatusGroupFromDates(task.startDate, task.completedAt);
       return {
         ...task,
         statusId: currentStatusId,
         status: matchedStatus
-          ? mapBackendStatusGroup(matchedStatus.statusGroup)
+          ? formatStatusLabel(matchedStatus)
           : inferTaskStatusFromDates(task.startDate, task.completedAt),
+        statusGroup: matchedStatus ? String(matchedStatus.statusGroup ?? '') : fallbackGroup,
       };
     });
   }, [dashboardTasks, taskStatusIds, statusesByList]);
@@ -302,14 +295,16 @@ export default function MyTasksPage() {
 
   const tabCounts = useMemo(() => {
     const dueToday = assignedTasks.filter((task) => {
-      if (!task.dueDate || task.status === 'done') return false;
+      if (!task.dueDate || isTaskCompleted(task)) return false;
       return toDateInputValue(task.dueDate) === toDateInputValue(new Date().toISOString());
     }).length;
-    const overdue = assignedTasks.filter((task) => isOverdue(task.dueDate, task.status)).length;
-    const completed = assignedTasks.filter((task) => task.status === 'done').length;
-    const inProgress = assignedTasks.filter((task) => task.status === 'in-progress').length;
+    const overdue = assignedTasks.filter((task) => isOverdue(task)).length;
+    const completed = assignedTasks.filter((task) => isTaskCompleted(task)).length;
+    const inProgress = assignedTasks.filter(
+      (task) => statusVisualBucketFromGroup(task.statusGroup ?? '') === 'in-progress',
+    ).length;
     const upcoming = assignedTasks.filter((task) => {
-      if (!task.dueDate || task.status === 'done') return false;
+      if (!task.dueDate || isTaskCompleted(task)) return false;
       return new Date(task.dueDate).getTime() >= Date.now();
     }).length;
     return { dueToday, overdue, completed, inProgress, upcoming, all: assignedTasks.length };
@@ -331,12 +326,12 @@ export default function MyTasksPage() {
 
   const filterActiveCount = useMemo(
     () =>
-      filterStatuses.length +
+      filterTaskStatusIds.length +
       filterPriorities.length +
       filterProjectIds.length +
       filterListIds.length +
       (filterOverdueOnly ? 1 : 0),
-    [filterStatuses, filterPriorities, filterProjectIds, filterListIds, filterOverdueOnly],
+    [filterTaskStatusIds, filterPriorities, filterProjectIds, filterListIds, filterOverdueOnly],
   );
 
   const effectiveDateRange = useMemo(
@@ -349,10 +344,11 @@ export default function MyTasksPage() {
 
     const byTab = assignedTasks.filter((task) => {
       if (activeTab === 'all') return true;
-      if (activeTab === 'in-progress') return task.status === 'in-progress';
-      if (activeTab === 'completed') return task.status === 'done';
-      if (activeTab === 'overdue') return isOverdue(task.dueDate, task.status);
-      if (!task.dueDate || task.status === 'done') return false;
+      if (activeTab === 'in-progress')
+        return statusVisualBucketFromGroup(task.statusGroup ?? '') === 'in-progress';
+      if (activeTab === 'completed') return isTaskCompleted(task);
+      if (activeTab === 'overdue') return isOverdue(task);
+      if (!task.dueDate || isTaskCompleted(task)) return false;
       return new Date(task.dueDate).getTime() >= Date.now();
     });
 
@@ -367,11 +363,11 @@ export default function MyTasksPage() {
     });
 
     const byFilters = bySearch.filter((task) => {
-      if (filterStatuses.length > 0 && !filterStatuses.includes(task.status)) return false;
+      if (filterTaskStatusIds.length > 0 && !filterTaskStatusIds.includes(task.statusId)) return false;
       if (filterPriorities.length > 0 && !filterPriorities.includes(task.priority)) return false;
       if (filterProjectIds.length > 0 && !filterProjectIds.includes(task.projectId)) return false;
       if (filterListIds.length > 0 && !filterListIds.includes(task.listId)) return false;
-      if (filterOverdueOnly && !isOverdue(task.dueDate, task.status)) return false;
+      if (filterOverdueOnly && !isOverdue(task)) return false;
       return true;
     });
 
@@ -415,7 +411,7 @@ export default function MyTasksPage() {
     searchQuery,
     activeTab,
     effectiveDateRange,
-    filterStatuses,
+    filterTaskStatusIds,
     filterPriorities,
     filterProjectIds,
     filterListIds,
@@ -424,22 +420,44 @@ export default function MyTasksPage() {
     sortDirection,
   ]);
 
+  const statusPositionById = useMemo(() => {
+    const m = new Map<number, number>();
+    Object.values(statusesByList)
+      .flat()
+      .forEach((s) => {
+        if (!m.has(s.statusId)) m.set(s.statusId, s.position ?? 0);
+      });
+    return m;
+  }, [statusesByList]);
+
+  const statusFilterOptions = useMemo(() => {
+    const uniq = new Map<number, StatusesResponse>();
+    Object.values(statusesByList)
+      .flat()
+      .forEach((s) => {
+        if (!uniq.has(s.statusId)) uniq.set(s.statusId, s);
+      });
+    return [...uniq.values()].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  }, [statusesByList]);
+
   const groupedTasks = useMemo(() => {
     if (groupBy === 'none') return [{ key: 'all', label: 'All Tasks', items: filteredTasks }];
     if (groupBy === 'status') {
       const sections = new Map<string, DashboardTask[]>();
       filteredTasks.forEach((task) => {
-        const key = String(task.status);
+        const sid = taskStatusIds[task.id] ?? task.statusId;
+        const key = String(sid);
         if (!sections.has(key)) sections.set(key, []);
         sections.get(key)?.push(task);
       });
       return Array.from(sections.entries())
         .sort(
-          (a, b) => statusGroupOrder.indexOf(a[0] as Task['status']) - statusGroupOrder.indexOf(b[0] as Task['status']),
+          (a, b) =>
+            (statusPositionById.get(Number(a[0])) ?? 999) - (statusPositionById.get(Number(b[0])) ?? 999),
         )
         .map(([key, items]) => ({
           key,
-          label: statusLabel[key as Task['status']] ?? key,
+          label: items[0]?.status ?? `Status #${key}`,
           items,
         }));
     }
@@ -473,7 +491,7 @@ export default function MyTasksPage() {
     return Array.from(sections.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([key, items]) => ({ key, label: key, items }));
-  }, [filteredTasks, groupBy]);
+  }, [filteredTasks, groupBy, taskStatusIds, statusPositionById]);
 
   const selectedIdsSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds]);
 
@@ -544,10 +562,10 @@ export default function MyTasksPage() {
 
     const previousStatusId = taskStatusIds[task.id] ?? task.statusId;
     if (nextStatusId === previousStatusId) return;
-    const nextStatusGroup = mapBackendStatusGroup(nextStatus.statusGroup);
+    const bucket = statusVisualBucketFromGroup(String(nextStatus.statusGroup ?? ''));
     const now = new Date().toISOString().slice(0, 19);
-    const nextStartDate = nextStatusGroup === 'todo' ? '' : task.startDate || now;
-    const nextCompletedAt = nextStatusGroup === 'done' ? now : '';
+    const nextStartDate = bucket === 'todo' ? '' : task.startDate || now;
+    const nextCompletedAt = bucket === 'completed' ? now : '';
 
     setTaskStatusIds((current) => ({ ...current, [task.id]: nextStatus.statusId }));
     setSavingTaskIds((current) => ({ ...current, [task.id]: true }));
@@ -576,7 +594,9 @@ export default function MyTasksPage() {
                 statusId: updatedTask.statusId,
                 startDate: updatedTask.startDate ?? '',
                 completedAt: updatedTask.completedAt ?? '',
-                status: mapBackendStatusGroup(nextStatus.statusGroup),
+                status: formatStatusLabel(nextStatus),
+                statusGroup: String(nextStatus.statusGroup ?? ''),
+                statusColor: nextStatus.color ?? null,
                 taskType: updatedTask.taskType,
                 timeEstimateDays: updatedTask.timeEstimateDays,
                 updatedAt: updatedTask.updatedAt,
@@ -773,20 +793,29 @@ export default function MyTasksPage() {
                     <div className="space-y-4">
                       <div>
                         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Status</p>
-                        <div className="flex flex-col gap-2">
-                          {statusGroupOrder.map((s) => (
-                            <label key={s} className="flex cursor-pointer items-center gap-2 text-sm text-slate-800">
-                              <Checkbox
-                                checked={filterStatuses.includes(s)}
-                                onCheckedChange={() =>
-                                  setFilterStatuses((prev) =>
-                                    prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
-                                  )
-                                }
-                              />
-                              {statusLabel[s]}
-                            </label>
-                          ))}
+                        <div className="flex max-h-40 flex-col gap-2 overflow-y-auto pr-1">
+                          {statusFilterOptions.length === 0 ? (
+                            <p className="text-xs text-slate-500">No statuses.</p>
+                          ) : (
+                            statusFilterOptions.map((s) => (
+                              <label
+                                key={s.statusId}
+                                className="flex cursor-pointer items-center gap-2 text-sm text-slate-800"
+                              >
+                                <Checkbox
+                                  checked={filterTaskStatusIds.includes(s.statusId)}
+                                  onCheckedChange={() =>
+                                    setFilterTaskStatusIds((prev) =>
+                                      prev.includes(s.statusId)
+                                        ? prev.filter((x) => x !== s.statusId)
+                                        : [...prev, s.statusId],
+                                    )
+                                  }
+                                />
+                                <span className="truncate">{formatStatusLabel(s)}</span>
+                              </label>
+                            ))
+                          )}
                         </div>
                       </div>
                       <div>
@@ -865,7 +894,7 @@ export default function MyTasksPage() {
                         variant="ghost"
                         className="h-8 w-full text-xs text-slate-600"
                         onClick={() => {
-                          setFilterStatuses([]);
+                          setFilterTaskStatusIds([]);
                           setFilterPriorities([]);
                           setFilterProjectIds([]);
                           setFilterListIds([]);

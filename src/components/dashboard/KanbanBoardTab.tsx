@@ -25,7 +25,7 @@ import {
 } from '@/lib/task-api';
 import { getCurrentUser, getUserById } from '@/lib/user-api';
 import { taskAssigneeRowsToDisplay } from '@/lib/task-assignee-utils';
-import { mapBackendStatusGroup, toDashboardTask } from '@/lib/dashboard-task-mapper';
+import { toDashboardTask } from '@/lib/dashboard-task-mapper';
 import { Checkbox } from '../ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -38,14 +38,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { AssigneeAvatarStack } from '@/components/tasks/AssigneeAvatarStack';
 import {
-  STATUS_GROUP_ORDER,
   formatStatusLabel,
-  formatTaskStatusLabel,
   sortStatuses,
-  statusGroupHeaderDotHex,
+  statusAccentHex,
+  statusBadgePresentation,
 } from '@/lib/task-status-ui';
 import { formatTaskPriorityLabel, TASK_PRIORITY_DISPLAY_ORDER } from '@/lib/task-priority-ui';
 import { normalizeStatusGroup } from '@/lib/status-groups';
+import { type DuePreset, dueBounds, filterDashboardTasks } from '@/lib/project-dashboard-filters';
 
 const priorityColors: Record<Priority, string> = {
   low: 'bg-gray-100 text-gray-700',
@@ -77,17 +77,34 @@ function normalizeCollection<T>(value: unknown): T[] {
   return value ? ([value] as T[]) : [];
 }
 
-function taskBelongsToStatus(task: DashboardTask, status: StatusesResponse, isListScope: boolean): boolean {
-  // In list scope, each status is a separate column; compare by exact statusId only.
-  if (isListScope) return task.statusId === status.statusId;
+/** Subtasks only appear on the parent task detail, not on the board. */
+function isBoardSubtask(task: DashboardTask): boolean {
+  return task.taskType === 'subtask' || task.parentTaskId != null;
+}
 
-  // In project scope we dedupe columns by `statusGroup`, so compare by visual bucket.
-  if (task.statusId === status.statusId) return true;
-  const bucket = mapBackendStatusGroup(String(status.statusGroup ?? ''));
-  return task.status === bucket;
+function taskBelongsToStatus(
+  task: DashboardTask,
+  columnStatus: StatusesResponse,
+  isListScope: boolean,
+  /** All loaded statuses before column dedupe — used to resolve task group by statusId */
+  allStatuses: StatusesResponse[],
+): boolean {
+  if (isListScope) {
+    return task.statusId === columnStatus.statusId;
+  }
+  if (task.statusId === columnStatus.statusId) return true;
+  const taskRow = allStatuses.find((s) => s.statusId === task.statusId);
+  if (!taskRow) return false;
+  return (
+    normalizeStatusGroup(taskRow.statusGroup) === normalizeStatusGroup(columnStatus.statusGroup)
+  );
 }
 
 function TaskCard({ task, onTaskClick }: TaskCardProps) {
+  const statusPill = statusBadgePresentation(
+    task.statusGroup ?? 'to_do',
+    task.statusColor ?? null,
+  );
   const [{ isDragging }, drag] = useDrag(() => ({
     type: 'TASK',
     item: { id: task.id, currentStatus: String(task.statusId ?? task.status) },
@@ -102,9 +119,8 @@ function TaskCard({ task, onTaskClick }: TaskCardProps) {
         drag(node);
       }}
       onClick={() => onTaskClick(task.id)}
-      className={`bg-white p-4 rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-all cursor-pointer ${
-        isDragging ? 'opacity-50' : ''
-      }`}
+      className={`bg-white p-4 rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-all cursor-pointer ${isDragging ? 'opacity-50' : ''
+        }`}
     >
       <div className="space-y-3">
         <div>
@@ -113,6 +129,16 @@ function TaskCard({ task, onTaskClick }: TaskCardProps) {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <span
+            className={cn(
+              'inline-flex max-w-[11rem] shrink-0 items-center truncate rounded-md border px-1.5 py-0.5 text-[10px] font-semibold leading-tight',
+              statusPill.className,
+            )}
+            style={statusPill.style}
+            title={String(task.status)}
+          >
+            {String(task.status)}
+          </span>
           <Badge variant="secondary" className={priorityColors[task.priority]}>
             {formatTaskPriorityLabel(task.priority)}
           </Badge>
@@ -193,9 +219,9 @@ function Column({ statusId, title, color, tasks, canDelete, onDelete, onTaskClic
       <div className="mb-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-             {/* color dot indicator */}
-             <span className="w-3 h-3 rounded-full" style={{ backgroundColor: headerColor }}></span>
-             <h3 className="font-semibold text-gray-900">{title}</h3>
+            {/* color dot indicator */}
+            <span className="w-3 h-3 rounded-full" style={{ backgroundColor: headerColor }}></span>
+            <h3 className="font-semibold text-gray-900">{title}</h3>
           </div>
           <div className="flex items-center gap-1">
             {canDelete && onDelete ? (
@@ -222,9 +248,8 @@ function Column({ statusId, title, color, tasks, canDelete, onDelete, onTaskClic
         ref={(node) => {
           drop(node);
         }}
-        className={`space-y-3 min-h-[500px] p-3 rounded-lg border-2 border-dashed transition-colors ${
-          isOver ? 'border-[#004ba8] bg-blue-50' : 'border-gray-200 bg-gray-50/40'
-        }`}
+        className={`space-y-3 min-h-[500px] p-3 rounded-lg border-2 border-dashed transition-colors ${isOver ? 'border-[#004ba8] bg-blue-50' : 'border-gray-200 bg-gray-50/40'
+          }`}
       >
         {tasks.map((task) => (
           <TaskCard key={task.id} task={task} onTaskClick={onTaskClick} />
@@ -237,14 +262,14 @@ function Column({ statusId, title, color, tasks, canDelete, onDelete, onTaskClic
 function AddStatusColumn({ onClick, disabled }: AddStatusColumnProps) {
   return (
     <div className="flex-1 min-w-[300px]">
-        <div className="mb-4 h-[30px]"> {/* 👈 thêm height */}
-            <div className="flex items-center justify-between h-full">
-                <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full " />
-                    <h3 ></h3>
-                </div>
-            </div>
+      <div className="mb-4 h-[30px]">
+        <div className="flex items-center justify-between h-full">
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full " />
+            <h3 ></h3>
+          </div>
         </div>
+      </div>
       <Button
         type="button"
         variant="outline"
@@ -290,8 +315,8 @@ export default function KanbanBoardTab({ listId }: Props) {
 
   const [currentUser, setCurrentUser] = useState<{ userId: number; fullName: string; avatarUrl: string | null } | null>(null);
 
-  // --- Filter states (đồng bộ với tab `List`) ---
-  const [filterStatusIds, setFilterStatusIds] = useState<Task['status'][]>([]);
+  // --- Filter state (aligned with List tab) ---
+  const [filterTaskStatusIds, setFilterTaskStatusIds] = useState<number[]>([]);
   const [filterListIds, setFilterListIds] = useState<number[]>([]);
   const [filterTagNames, setFilterTagNames] = useState<string[]>([]);
   const [filterPriorities, setFilterPriorities] = useState<Task['priority'][]>([]);
@@ -360,14 +385,19 @@ export default function KanbanBoardTab({ listId }: Props) {
       const bundles = await Promise.all(
         (rawTasks || []).map(async (t: TaskResponse) => {
           const [tags, assignees] = await Promise.all([getTaskTags(t.taskId).catch(() => []), getTaskAssignees(t.taskId).catch(() => [])]);
-          const rowBase = toDashboardTask(t, assignees, me.userId, me.fullName?.trim() || me.username || 'User', tags);
-
           const listStatuses = byList[t.listId] ?? [];
-          const matched = listStatuses.find((s) => s.statusId === t.statusId);
-          const status = matched ? mapBackendStatusGroup(String(matched.statusGroup ?? '')) : rowBase.status;
+          const matched = listStatuses.find((s) => s.statusId === t.statusId) ?? null;
+          const rowBase = toDashboardTask(
+            t,
+            assignees,
+            me.userId,
+            me.fullName?.trim() || me.username || 'User',
+            tags,
+            matched,
+          );
 
           return {
-            row: { ...rowBase, status },
+            row: rowBase,
             assignees,
           };
         }),
@@ -437,7 +467,7 @@ export default function KanbanBoardTab({ listId }: Props) {
 
   const filterActiveCount = useMemo(() => {
     return (
-      filterStatusIds.length +
+      filterTaskStatusIds.length +
       filterListIds.length +
       filterTagNames.length +
       filterPriorities.length +
@@ -446,21 +476,17 @@ export default function KanbanBoardTab({ listId }: Props) {
       (duePreset !== 'all' ? 1 : 0) +
       (assignedToMeOnly ? 1 : 0)
     );
-  }, [assignedToMeOnly, duePreset, filterAssigneeIds.length, filterListIds.length, filterPriorities.length, filterReporterIds.length, filterStatusIds.length, filterTagNames.length]);
+  }, [assignedToMeOnly, duePreset, filterAssigneeIds.length, filterListIds.length, filterPriorities.length, filterReporterIds.length, filterTaskStatusIds.length, filterTagNames.length]);
 
   const statusFilterOptions = useMemo(() => {
-    const seen = new Set<Task['status']>();
+    const uniq = new Map<number, StatusesResponse>();
     statuses.forEach((s) => {
-      seen.add(mapBackendStatusGroup(String(s.statusGroup ?? '')));
+      if (!uniq.has(s.statusId)) uniq.set(s.statusId, s);
     });
-    tasks.forEach((t) => {
-      seen.add(t.status);
-    });
-    return STATUS_GROUP_ORDER.filter((status) => seen.has(status)).map((status) => ({
-      value: status,
-      label: formatTaskStatusLabel(status),
-    }));
-  }, [statuses, tasks]);
+    return [...uniq.values()]
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      .map((s) => ({ value: s.statusId, label: formatStatusLabel(s) }));
+  }, [statuses]);
 
   const listFilterOptions = useMemo(() => {
     return [...lists]
@@ -481,14 +507,16 @@ export default function KanbanBoardTab({ listId }: Props) {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [tasks, currentUser]);
 
+  const boardTasks = useMemo(() => tasks.filter((t) => !isBoardSubtask(t)), [tasks]);
+
   const filteredTasks = useMemo(
     () =>
       filterDashboardTasks({
-        tasks,
+        tasks: boardTasks,
         assignedToMeOnly,
         currentUser,
         assigneeUserIdsByTask,
-        filterStatusIds,
+        filterTaskStatusIds,
         filterListIds,
         filterPriorities,
         filterAssigneeIds,
@@ -498,11 +526,11 @@ export default function KanbanBoardTab({ listId }: Props) {
         dueRange,
       }),
     [
-      tasks,
+      boardTasks,
       assignedToMeOnly,
       currentUser,
       assigneeUserIdsByTask,
-      filterStatusIds,
+      filterTaskStatusIds,
       filterListIds,
       filterPriorities,
       filterAssigneeIds,
@@ -514,7 +542,7 @@ export default function KanbanBoardTab({ listId }: Props) {
   );
 
   const clearAllFilters = () => {
-    setFilterStatusIds([]);
+    setFilterTaskStatusIds([]);
     setFilterListIds([]);
     setFilterTagNames([]);
     setFilterPriorities([]);
@@ -527,7 +555,7 @@ export default function KanbanBoardTab({ listId }: Props) {
   };
 
   if (loading) {
-    return <div className="p-8 text-gray-500">Đang tải status va task tu API...</div>;
+    return <div className="p-8 text-gray-500">Loading board…</div>;
   }
 
   if (error && tasks.length === 0) {
@@ -565,17 +593,31 @@ export default function KanbanBoardTab({ listId }: Props) {
 
     const groupKey = normalizeStatusGroup(displayedStatus.statusGroup);
     const actualStatusIdToUse = isListScope ? displayedStatusId : statusGroupMap.get(groupKey) ?? displayedStatusId;
-    const nextStatusBucket = mapBackendStatusGroup(String(displayedStatus.statusGroup ?? ''));
+    const nextLabel = formatStatusLabel(displayedStatus);
+    const nextGroup = String(displayedStatus.statusGroup ?? '');
+    const resolvedStatus =
+      displayStatuses.find((s) => s.statusId === actualStatusIdToUse) ?? displayedStatus;
+    const nextColor = resolvedStatus.color ?? null;
 
     const previousTasks = [...tasks];
     setTasks((prevTasks) =>
-      prevTasks.map((task) => (task.id === taskId ? { ...task, statusId: actualStatusIdToUse, status: nextStatusBucket } : task)),
+      prevTasks.map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              statusId: actualStatusIdToUse,
+              status: nextLabel,
+              statusGroup: nextGroup,
+              statusColor: nextColor,
+            }
+          : task,
+      ),
     );
 
     try {
       await updateTask(Number(taskId), { statusId: actualStatusIdToUse });
     } catch (e) {
-      console.error('Lỗi khi cập nhật status task:', e);
+      console.error('Failed to update task status:', e);
       setTasks(previousTasks);
     }
   };
@@ -620,9 +662,11 @@ export default function KanbanBoardTab({ listId }: Props) {
                       statusFilterOptions.map((s) => (
                         <label key={s.value} className="flex cursor-pointer items-start gap-2 text-slate-800">
                           <Checkbox
-                            checked={filterStatusIds.includes(s.value)}
+                            checked={filterTaskStatusIds.includes(s.value)}
                             onCheckedChange={() =>
-                              setFilterStatusIds((prev) => (prev.includes(s.value) ? prev.filter((x) => x !== s.value) : [...prev, s.value]))
+                              setFilterTaskStatusIds((prev) =>
+                                prev.includes(s.value) ? prev.filter((x) => x !== s.value) : [...prev, s.value],
+                              )
                             }
                           />
                           <span className="leading-tight">{s.label}</span>
@@ -808,12 +852,11 @@ export default function KanbanBoardTab({ listId }: Props) {
           {displayStatuses.length > 0 ? (
             <>
               {displayStatuses.map((status) => {
-                const columnTasks = filteredTasks.filter((task) => taskBelongsToStatus(task, status, isListScope));
+                const columnTasks = filteredTasks.filter((task) =>
+                  taskBelongsToStatus(task, status, isListScope, statuses),
+                );
                 const title = formatStatusLabel(status);
-                const dotColor =
-                  (typeof status.color === 'string' && status.color.trim().length > 0
-                    ? status.color.trim()
-                    : null) ?? statusGroupHeaderDotHex(String(status.statusGroup ?? ''));
+                const dotColor = statusAccentHex(String(status.statusGroup ?? ''), status.color);
                 return (
                   <Column
                     key={status.statusId}

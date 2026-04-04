@@ -21,12 +21,47 @@ import { getCurrentUser } from '@/lib/user-api';
 import { getStoredUserId } from '@/lib/auth-session';
 import { listWorkspaces, listWorkspacesByOwner } from '@/lib/workspace-api';
 import { getProjectsByWorkspace, type ProjectResponse } from '@/lib/project-api';
+import {
+  getWorkspaceSnapshot,
+  saveWorkspaceSnapshot,
+  workspaceResponseToSnapshot,
+} from '@/lib/workspace-storage';
 import { addTaskAssignee, createTask } from '@/lib/task-api';
 import { ApiError } from '@/lib/http';
 import type { Task } from '@/types/task';
 import type { StatusesResponse } from '@/types/api';
 import { formatStatusLabel, sortStatuses } from '@/lib/task-status-ui';
 import { mapFrontendPriorityToBackend } from '@/lib/dashboard-task-mapper';
+import { personalWorkspaceKey } from '@/lib/workspace-keys';
+
+/** Workspace đang chọn trong sidebar (snapshot); fallback API nếu snapshot chưa có id. */
+async function resolveCurrentWorkspaceId(): Promise<number | null> {
+  let wsId = getWorkspaceSnapshot().workspaceId;
+  if (wsId != null) return wsId;
+  const userId = getStoredUserId();
+  if (!userId) return null;
+  try {
+    const list = await listWorkspaces();
+    const personal = list.find((w) => w.workspaceKey === personalWorkspaceKey(userId)) ?? list[0];
+    if (personal) {
+      saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+      return personal.workspaceId;
+    }
+  } catch {
+    /* fallback */
+  }
+  try {
+    const list = await listWorkspacesByOwner(userId);
+    const personal = list.find((w) => w.workspaceKey === personalWorkspaceKey(userId)) ?? list[0];
+    if (personal) {
+      saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+      return personal.workspaceId;
+    }
+  } catch {
+    /* no workspace */
+  }
+  return null;
+}
 
 function normalizeBackendStatusGroupKey(raw: string): string {
   return String(raw ?? '')
@@ -81,6 +116,8 @@ export function CreateTaskDialog({
   const [createError, setCreateError] = useState<string | null>(null);
   const [createFormStatuses, setCreateFormStatuses] = useState<StatusesResponse[]>([]);
   const [lockedProjectLabel, setLockedProjectLabel] = useState<string>('');
+  /** Tăng khi đổi workspace để load lại catalog project (My Tasks / sidebar). */
+  const [workspaceRev, setWorkspaceRev] = useState(0);
 
   const lockedListLabel = useMemo(() => {
     const lid = defaultListId;
@@ -94,6 +131,12 @@ export function CreateTaskDialog({
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((p) => [p.idProject, p.name] as [number, string]);
   }, [createProjectsCatalog]);
+
+  useEffect(() => {
+    const onWs = () => setWorkspaceRev((n) => n + 1);
+    window.addEventListener('enflow-workspace-changed', onWs);
+    return () => window.removeEventListener('enflow-workspace-changed', onWs);
+  }, []);
 
   useEffect(() => {
     if (open && parentTaskId != null) {
@@ -125,33 +168,26 @@ export function CreateTaskDialog({
     setCreateCatalogLoading(true);
     (async () => {
       try {
-        let all: ProjectResponse[] = [];
-        const workspaces = await listWorkspaces().catch(() => [] as Awaited<ReturnType<typeof listWorkspaces>>);
-        if (workspaces.length > 0) {
-          for (const ws of workspaces) {
-            const projects = await getProjectsByWorkspace(ws.workspaceId).catch(() => []);
-            all.push(...projects);
+        const wsId = await resolveCurrentWorkspaceId();
+        if (wsId == null) {
+          if (!cancelled) {
+            setCreateProjectsCatalog([]);
+            setCreateProjectId('');
           }
+          return;
         }
-        if (all.length === 0) {
-          const userId = getStoredUserId();
-          if (userId) {
-            const owned = await listWorkspacesByOwner(userId).catch(() => []);
-            for (const ws of owned) {
-              const projects = await getProjectsByWorkspace(ws.workspaceId).catch(() => []);
-              all.push(...projects);
-            }
-          }
-        }
-        const seen = new Set<number>();
-        const deduped = all.filter((p) => {
-          if (seen.has(p.idProject)) return false;
-          seen.add(p.idProject);
-          return true;
+        const projects = await getProjectsByWorkspace(wsId).catch(() => [] as ProjectResponse[]);
+        if (cancelled) return;
+        setCreateProjectsCatalog(projects);
+        setCreateProjectId((prev) => {
+          if (prev === '' || typeof prev !== 'number') return prev;
+          return projects.some((p) => p.idProject === prev) ? prev : '';
         });
-        if (!cancelled) setCreateProjectsCatalog(deduped);
       } catch {
-        if (!cancelled) setCreateProjectsCatalog([]);
+        if (!cancelled) {
+          setCreateProjectsCatalog([]);
+          setCreateProjectId('');
+        }
       } finally {
         if (!cancelled) setCreateCatalogLoading(false);
       }
@@ -160,7 +196,7 @@ export function CreateTaskDialog({
       cancelled = true;
       setCreateCatalogLoading(false);
     };
-  }, [open, lockedProjectId]);
+  }, [open, lockedProjectId, workspaceRev]);
 
   useEffect(() => {
     if (!open || lockedProjectId == null) return;

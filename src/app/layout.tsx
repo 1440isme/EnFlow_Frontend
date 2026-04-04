@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'EnFlow',
-  description: 'EnFlow — quản lý công việc',
+  description: 'EnFlow — task and project management',
 };
 
 export default function RootLayout({
@@ -12,7 +12,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi">
+    <html lang="en">
       <body className="antialiased">{children}</body>
     </html>
   );

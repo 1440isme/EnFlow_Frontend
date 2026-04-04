@@ -76,7 +76,7 @@ export default function AccountPage() {
           return;
         }
         setProfileError(
-          e instanceof ApiError ? e.message : 'Không tải được hồ sơ từ máy chủ.'
+          e instanceof ApiError ? e.message : 'Could not load profile from server.'
         );
       } finally {
         if (!cancelled) setLoadingProfile(false);
@@ -108,7 +108,7 @@ export default function AccountPage() {
         router.push('/login');
         return;
       }
-      setProfileError(err instanceof ApiError ? err.message : 'Không lưu được hồ sơ.');
+      setProfileError(err instanceof ApiError ? err.message : 'Could not save profile.');
     } finally {
       setSavingProfile(false);
     }
@@ -119,15 +119,15 @@ export default function AccountPage() {
     setPasswordMessage(null);
     setPasswordOk(false);
     if (newPassword !== confirmPassword) {
-      setPasswordMessage('Mật khẩu mới và xác nhận không khớp.');
+      setPasswordMessage('New password and confirmation do not match.');
       return;
     }
     if (newPassword.length < 8) {
-      setPasswordMessage('Mật khẩu mới nên có ít nhất 8 ký tự.');
+      setPasswordMessage('New password must be at least 8 characters.');
       return;
     }
     if (!currentPassword) {
-      setPasswordMessage('Nhập mật khẩu hiện tại.');
+      setPasswordMessage('Enter your current password.');
       return;
     }
     setChangingPassword(true);
@@ -138,7 +138,7 @@ export default function AccountPage() {
         confirmPassword,
       });
       setPasswordOk(true);
-      setPasswordMessage('Đã đổi mật khẩu thành công.');
+      setPasswordMessage('Password updated.');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
@@ -149,7 +149,7 @@ export default function AccountPage() {
         return;
       }
       setPasswordMessage(
-        err instanceof ApiError ? err.message : 'Đổi mật khẩu thất bại.'
+        err instanceof ApiError ? err.message : 'Could not change password.'
       );
     } finally {
       setChangingPassword(false);
@@ -171,7 +171,7 @@ export default function AccountPage() {
       router.push('/login');
     } catch (err) {
       setDeactivateError(
-        err instanceof ApiError ? err.message : 'Không vô hiệu hóa được tài khoản.'
+        err instanceof ApiError ? err.message : 'Could not deactivate account.'
       );
     } finally {
       setDeactivating(false);
@@ -181,30 +181,28 @@ export default function AccountPage() {
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold text-gray-900 mb-1">Tài khoản</h1>
-        <p className="text-gray-600">Quản lý thông tin cá nhân và bảo mật</p>
+        <h1 className="text-3xl font-semibold text-gray-900 mb-1">Account</h1>
+        <p className="text-gray-600">Profile and security</p>
       </div>
 
       <Tabs defaultValue="profile" className="w-full">
         <TabsList className="grid w-full max-w-md grid-cols-2">
           <TabsTrigger value="profile" className="gap-2">
             <User className="w-4 h-4" />
-            Hồ sơ
+            Profile
           </TabsTrigger>
           <TabsTrigger value="security" className="gap-2">
             <Lock className="w-4 h-4" />
-            Bảo mật
+            Security
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile" className="mt-6">
           <Card className="p-6">
-            <h2 className="font-semibold text-gray-900 mb-4">Thông tin cá nhân</h2>
-            <p className="text-sm text-gray-600 mb-6">
-              Đồng bộ với API <code className="text-xs bg-gray-100 px-1 rounded">GET/PUT /enflow/users/me</code>.
-            </p>
+            <h2 className="font-semibold text-gray-900 mb-4">Personal information</h2>
+
             {loadingProfile ? (
-              <p className="text-sm text-gray-500">Đang tải hồ sơ…</p>
+              <p className="text-sm text-gray-500">Loading profile…</p>
             ) : null}
             {profileError && !loadingProfile ? (
               <Alert variant="destructive" className="mb-4">
@@ -214,11 +212,11 @@ export default function AccountPage() {
             <form onSubmit={(e) => void handleSaveProfile(e)} className="space-y-4">
               {infoSaved ? (
                 <Alert>
-                  <AlertDescription>Đã lưu thông tin.</AlertDescription>
+                  <AlertDescription>Saved.</AlertDescription>
                 </Alert>
               ) : null}
               <div className="space-y-2">
-                <Label htmlFor="acc-fullName">Họ và tên</Label>
+                <Label htmlFor="acc-fullName">Full name</Label>
                 <Input
                   id="acc-fullName"
                   value={fullName}
@@ -251,7 +249,7 @@ export default function AccountPage() {
                 className="bg-[#004ba8] hover:bg-[#003d8a]"
                 disabled={loadingProfile || savingProfile}
               >
-                {savingProfile ? 'Đang lưu…' : 'Lưu thông tin'}
+                {savingProfile ? 'Saving…' : 'Save'}
               </Button>
             </form>
           </Card>
@@ -259,9 +257,9 @@ export default function AccountPage() {
 
         <TabsContent value="security" className="mt-6 space-y-6">
           <Card className="p-6">
-            <h2 className="font-semibold text-gray-900 mb-2">Đổi mật khẩu</h2>
+            <h2 className="font-semibold text-gray-900 mb-2">Change password</h2>
             <p className="text-sm text-gray-600 mb-6">
-              Gọi <code className="text-xs bg-gray-100 px-1 rounded">PATCH /enflow/users/me/change-password</code>.
+              Use a strong password you do not reuse on other sites.
             </p>
             <form onSubmit={(e) => void handleChangePassword(e)} className="space-y-4">
               {passwordMessage ? (
@@ -270,7 +268,7 @@ export default function AccountPage() {
                 </Alert>
               ) : null}
               <div className="space-y-2">
-                <Label htmlFor="acc-current-pw">Mật khẩu hiện tại</Label>
+                <Label htmlFor="acc-current-pw">Current password</Label>
                 <Input
                   id="acc-current-pw"
                   type="password"
@@ -282,7 +280,7 @@ export default function AccountPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="acc-new-pw">Mật khẩu mới</Label>
+                <Label htmlFor="acc-new-pw">New password</Label>
                 <Input
                   id="acc-new-pw"
                   type="password"
@@ -294,7 +292,7 @@ export default function AccountPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="acc-confirm-pw">Xác nhận mật khẩu mới</Label>
+                <Label htmlFor="acc-confirm-pw">Confirm new password</Label>
                 <Input
                   id="acc-confirm-pw"
                   type="password"
@@ -306,15 +304,15 @@ export default function AccountPage() {
                 />
               </div>
               <Button type="submit" variant="secondary" disabled={changingPassword}>
-                {changingPassword ? 'Đang cập nhật…' : 'Cập nhật mật khẩu'}
+                {changingPassword ? 'Updating…' : 'Update password'}
               </Button>
             </form>
           </Card>
 
           <Card className="p-6 border-red-100">
-            <h2 className="font-semibold text-gray-900 mb-2">Phiên đăng nhập</h2>
+            <h2 className="font-semibold text-gray-900 mb-2">Session</h2>
             <p className="text-sm text-gray-600 mb-4">
-              Đăng xuất khỏi thiết bị này. Bạn cần đăng nhập lại để dùng ứng dụng.
+              Sign out on this device. You will need to sign in again to use the app.
             </p>
             <Separator className="mb-4" />
             <Button
@@ -324,16 +322,14 @@ export default function AccountPage() {
               onClick={handleLogout}
             >
               <LogOut className="w-4 h-4" />
-              Đăng xuất
+              Sign out
             </Button>
           </Card>
 
           <Card className="p-6 border-red-200 bg-red-50/40">
-            <h2 className="font-semibold text-red-950 mb-2">Xóa tài khoản</h2>
+            <h2 className="font-semibold text-red-950 mb-2">Delete account</h2>
             <p className="text-sm text-red-900/90 mb-2">
-              Vô hiệu hóa tài khoản vĩnh viễn theo API{' '}
-              <code className="text-xs bg-white/80 px-1 rounded">PATCH /enflow/users/me/deactivate</code>.
-              Bạn sẽ không thể đăng nhập lại bằng tài khoản này.
+              Permanently deactivate this account. You will not be able to sign in again.
             </p>
             {deactivateError ? (
               <Alert variant="destructive" className="mb-4">
@@ -350,20 +346,20 @@ export default function AccountPage() {
               }}
             >
               <UserX className="w-4 h-4" />
-              Xóa tài khoản
+              Delete account
             </Button>
           </Card>
 
           <AlertDialog open={deactivateOpen} onOpenChange={setDeactivateOpen}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Vô hiệu hóa tài khoản?</AlertDialogTitle>
+                <AlertDialogTitle>Deactivate account?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Hành động này không thể hoàn tác. Tài khoản sẽ bị vô hiệu hóa trên máy chủ.
+                  This cannot be undone. Your account will be deactivated.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel disabled={deactivating}>Hủy</AlertDialogCancel>
+                <AlertDialogCancel disabled={deactivating}>Cancel</AlertDialogCancel>
                 <AlertDialogAction
                   className="bg-red-600 hover:bg-red-700"
                   onClick={(e) => {
@@ -372,7 +368,7 @@ export default function AccountPage() {
                   }}
                   disabled={deactivating}
                 >
-                  {deactivating ? 'Đang xử lý…' : 'Xác nhận xóa tài khoản'}
+                  {deactivating ? 'Processing…' : 'Confirm'}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

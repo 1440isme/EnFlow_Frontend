@@ -46,7 +46,7 @@ import {
   updateWorkspaceMember,
 } from '@/lib/workspace-api';
 import {
-  canManageWorkspaceMembers,
+  canManageTeamMembers,
   formatWorkspaceRole,
   isOwnerRole,
 } from '@/lib/workspace-member-utils';
@@ -86,7 +86,7 @@ export default function WorkspaceSettingsDialog({
   const [lookupResult, setLookupResult] = useState<UserPublicLookupResponse | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
-  const [memberRole, setMemberRole] = useState<'admin' | 'member' | 'guest'>('member');
+  const [memberRole, setMemberRole] = useState<'member' | 'guest'>('member');
   const [memberSaving, setMemberSaving] = useState(false);
   const [memberError, setMemberError] = useState<string | null>(null);
   const [memberOk, setMemberOk] = useState<string | null>(null);
@@ -101,7 +101,7 @@ export default function WorkspaceSettingsDialog({
   const [deleteWsLoading, setDeleteWsLoading] = useState(false);
 
   const hasServerId = snapshot.workspaceId != null;
-  const canManage = canManageWorkspaceMembers(myRoleKey);
+  const canManage = canManageTeamMembers(myRoleKey);
   const isWorkspaceOwner =
     snapshot.ownerUserId != null &&
     myUserId != null &&
@@ -131,7 +131,7 @@ export default function WorkspaceSettingsDialog({
         }
         rows.push({
           userId: m.userId,
-          fullName: u?.fullName ?? `Người dùng #${m.userId}`,
+          fullName: u?.fullName ?? `User #${m.userId}`,
           email: u?.email ?? '—',
           avatarUrl: u?.avatarUrl ?? null,
           roleKey: m.roleInWorkspace,
@@ -202,7 +202,7 @@ export default function WorkspaceSettingsDialog({
       onSaved?.();
       onOpenChange(false);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Không lưu được workspace.');
+      setError(e instanceof ApiError ? e.message : 'Could not save workspace.');
     } finally {
       setSaving(false);
     }
@@ -215,11 +215,11 @@ export default function WorkspaceSettingsDialog({
     setLookupResult(null);
     const email = memberEmail.trim();
     if (!email) {
-      setLookupError('Nhập email.');
+      setLookupError('Enter an email address.');
       return;
     }
     if (!email.includes('@')) {
-      setLookupError('Email không hợp lệ.');
+      setLookupError('Invalid email.');
       return;
     }
     setLookupLoading(true);
@@ -228,7 +228,7 @@ export default function WorkspaceSettingsDialog({
       setLookupResult(found);
     } catch (e) {
       setLookupError(
-        e instanceof ApiError ? e.message : 'Không tra cứu được người dùng.'
+        e instanceof ApiError ? e.message : 'User lookup failed.'
       );
     } finally {
       setLookupLoading(false);
@@ -246,14 +246,14 @@ export default function WorkspaceSettingsDialog({
         roleInWorkspace: memberRole,
       });
       setMemberOk(
-        `Đã thêm ${lookupResult.fullName} (${lookupResult.email}) với vai trò ${memberRole}.`
+        `Added ${lookupResult.fullName} (${lookupResult.email}) as ${memberRole}.`
       );
       setMemberEmail('');
       setLookupResult(null);
       setMemberRole('member');
       await loadMembers();
     } catch (e) {
-      setMemberError(e instanceof ApiError ? e.message : 'Không thêm được thành viên.');
+      setMemberError(e instanceof ApiError ? e.message : 'Could not add member.');
     } finally {
       setMemberSaving(false);
     }
@@ -270,7 +270,7 @@ export default function WorkspaceSettingsDialog({
       });
       await loadMembers();
     } catch (e) {
-      setMemberError(e instanceof ApiError ? e.message : 'Không cập nhật vai trò.');
+      setMemberError(e instanceof ApiError ? e.message : 'Could not update role.');
     } finally {
       setRowBusy(null);
     }
@@ -285,7 +285,7 @@ export default function WorkspaceSettingsDialog({
       setRemoveTarget(null);
       await loadMembers();
     } catch (e) {
-      setMemberError(e instanceof ApiError ? e.message : 'Không xóa được thành viên.');
+      setMemberError(e instanceof ApiError ? e.message : 'Could not remove member.');
     } finally {
       setRowBusy(null);
     }
@@ -303,7 +303,7 @@ export default function WorkspaceSettingsDialog({
       }
       onSaved?.();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Không xóa được workspace.');
+      setError(e instanceof ApiError ? e.message : 'Could not delete workspace.');
     } finally {
       setDeleteWsLoading(false);
       setDeleteWsOpen(false);
@@ -315,12 +315,12 @@ export default function WorkspaceSettingsDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Cài đặt workspace</DialogTitle>
+            <DialogTitle>Workspace settings</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-gray-600">
             {hasServerId
-              ? 'Tên, mô tả và riêng tư được đồng bộ với máy chủ. Mã workspace chỉ đọc.'
-              : 'Chưa có workspace trên server (chưa đăng nhập hoặc chưa đồng bộ). Lưu tạm trên trình duyệt.'}
+              ? 'Name, description, and privacy sync to the server. Workspace key is read-only.'
+              : 'No workspace on the server yet. Changes are saved locally in your browser.'}
           </p>
           {error ? (
             <Alert variant="destructive">
@@ -329,7 +329,7 @@ export default function WorkspaceSettingsDialog({
           ) : null}
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="ws-name">Tên workspace</Label>
+              <Label htmlFor="ws-name">Workspace name</Label>
               <Input
                 id="ws-name"
                 value={name}
@@ -339,7 +339,7 @@ export default function WorkspaceSettingsDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ws-key">Mã workspace (workspace_key)</Label>
+              <Label htmlFor="ws-key">Workspace key</Label>
               <Input
                 id="ws-key"
                 value={workspaceKey}
@@ -351,7 +351,7 @@ export default function WorkspaceSettingsDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ws-desc">Mô tả</Label>
+              <Label htmlFor="ws-desc">Description</Label>
               <Textarea
                 id="ws-desc"
                 value={description}
@@ -363,8 +363,7 @@ export default function WorkspaceSettingsDialog({
             </div>
             <div className="flex items-center justify-between rounded-lg border border-gray-200 p-4">
               <div>
-                <p className="font-medium text-gray-900">Workspace riêng tư</p>
-                <p className="text-sm text-gray-600">Tương ứng is_private trên server</p>
+                <p className="font-medium text-gray-900">Private workspace</p>
               </div>
               <Switch checked={isPrivate} onCheckedChange={setIsPrivate} disabled={saving} />
             </div>
@@ -373,11 +372,11 @@ export default function WorkspaceSettingsDialog({
               <>
                 <Separator className="my-2" />
                 <div className="space-y-2">
-                  <p className="font-medium text-gray-900">Thành viên</p>
+                  <p className="font-medium text-gray-900">Members</p>
                   {membersLoading ? (
-                    <p className="text-sm text-gray-500">Đang tải danh sách…</p>
+                    <p className="text-sm text-gray-500">Loading…</p>
                   ) : memberRows.length === 0 ? (
-                    <p className="text-sm text-gray-500">Chưa có thành viên.</p>
+                    <p className="text-sm text-gray-500">No members yet.</p>
                   ) : (
                     <ul className="space-y-2 max-h-52 overflow-y-auto">
                       {memberRows.map((row) => {
@@ -409,7 +408,7 @@ export default function WorkspaceSettingsDialog({
                                 <p className="truncate font-medium text-gray-900">
                                   {row.fullName}
                                   {isMe ? (
-                                    <span className="ml-2 text-xs font-normal text-[#004ba8]">(Bạn)</span>
+                                    <span className="ml-2 text-xs font-normal text-[#004ba8]">You</span>
                                   ) : null}
                                 </p>
                                 <p className="truncate text-xs text-gray-600">{row.email}</p>
@@ -431,7 +430,6 @@ export default function WorkspaceSettingsDialog({
                                       <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      <SelectItem value="admin">Admin</SelectItem>
                                       <SelectItem value="member">Member</SelectItem>
                                       <SelectItem value="guest">Guest</SelectItem>
                                     </SelectContent>
@@ -444,7 +442,7 @@ export default function WorkspaceSettingsDialog({
                                     disabled={busy}
                                     onClick={() => setRemoveTarget(row)}
                                   >
-                                    Gỡ
+                                    Remove
                                   </Button>
                                 </>
                               ) : (
@@ -460,128 +458,131 @@ export default function WorkspaceSettingsDialog({
                   )}
                 </div>
 
-                <Separator className="my-2" />
-                <div className="space-y-3">
-                  <div>
-                    <p className="font-medium text-gray-900">Thêm thành viên</p>
-                    <p className="text-sm text-gray-600">
-                      Tra cứu theo email, xác nhận rồi chọn vai trò.
-                    </p>
-                  </div>
-                  {memberOk ? (
-                    <Alert>
-                      <AlertDescription>{memberOk}</AlertDescription>
-                    </Alert>
-                  ) : null}
-                  {memberError ? (
-                    <Alert variant="destructive">
-                      <AlertDescription>{memberError}</AlertDescription>
-                    </Alert>
-                  ) : null}
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <Label htmlFor="ws-member-email">Email người được mời</Label>
-                      <Input
-                        id="ws-member-email"
-                        type="email"
-                        autoComplete="off"
-                        value={memberEmail}
-                        onChange={(e) => {
-                          setMemberEmail(e.target.value);
-                          setLookupResult(null);
-                          setLookupError(null);
-                        }}
-                        className="bg-input-background"
-                        placeholder="user@example.com"
-                        disabled={memberSaving || lookupLoading}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            void handleLookupEmail();
-                          }
-                        }}
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="shrink-0"
-                      onClick={() => void handleLookupEmail()}
-                      disabled={memberSaving || lookupLoading}
-                    >
-                      {lookupLoading ? 'Đang tra…' : 'Tra cứu'}
-                    </Button>
-                  </div>
-                  {lookupError ? (
-                    <Alert variant="destructive">
-                      <AlertDescription>{lookupError}</AlertDescription>
-                    </Alert>
-                  ) : null}
-                  {lookupResult ? (
-                    <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-4">
-                      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-500">
-                        Xác nhận người được mời
-                      </p>
-                      <div className="flex items-center gap-4">
-                        {lookupResult.avatarUrl ? (
-                          <img
-                            src={lookupResult.avatarUrl}
-                            alt=""
-                            className="h-14 w-14 shrink-0 rounded-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#004ba8] font-semibold text-white">
-                            {profileInitials({
-                              fullName: lookupResult.fullName,
-                              email: lookupResult.email,
-                            })}
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate font-semibold text-gray-900">{lookupResult.fullName}</p>
-                          <p className="truncate text-sm text-gray-600">{lookupResult.email}</p>
-                        </div>
+                {canManage ? (
+                  <>
+                    <Separator className="my-2" />
+                    <div className="space-y-3">
+                      <div>
+                        <p className="font-medium text-gray-900">Add member</p>
+                        <p className="text-sm text-gray-600">
+                          Look up by email, confirm, then choose Member or Guest.
+                        </p>
                       </div>
-                      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                        <div className="space-y-2 sm:w-44">
-                          <Label>Vai trò</Label>
-                          <Select
-                            value={memberRole}
-                            onValueChange={(v) =>
-                              setMemberRole(v as 'admin' | 'member' | 'guest')
-                            }
-                            disabled={memberSaving}
-                          >
-                            <SelectTrigger className="bg-input-background w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="admin">Admin</SelectItem>
-                              <SelectItem value="member">Member</SelectItem>
-                              <SelectItem value="guest">Guest</SelectItem>
-                            </SelectContent>
-                          </Select>
+                      {memberOk ? (
+                        <Alert>
+                          <AlertDescription>{memberOk}</AlertDescription>
+                        </Alert>
+                      ) : null}
+                      {memberError ? (
+                        <Alert variant="destructive">
+                          <AlertDescription>{memberError}</AlertDescription>
+                        </Alert>
+                      ) : null}
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <Label htmlFor="ws-member-email">Invitee email</Label>
+                          <Input
+                            id="ws-member-email"
+                            type="email"
+                            autoComplete="off"
+                            value={memberEmail}
+                            onChange={(e) => {
+                              setMemberEmail(e.target.value);
+                              setLookupResult(null);
+                              setLookupError(null);
+                            }}
+                            className="bg-input-background"
+                            placeholder="user@example.com"
+                            disabled={memberSaving || lookupLoading}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                void handleLookupEmail();
+                              }
+                            }}
+                          />
                         </div>
                         <Button
                           type="button"
-                          className="w-full bg-[#004ba8] hover:bg-[#003d8a] sm:w-auto"
-                          onClick={() => void handleAddMember()}
+                          variant="secondary"
+                          className="shrink-0"
+                          onClick={() => void handleLookupEmail()}
                           disabled={memberSaving || lookupLoading}
                         >
-                          {memberSaving ? 'Đang thêm…' : 'Thêm vào workspace'}
+                          {lookupLoading ? 'Looking up…' : 'Look up'}
                         </Button>
                       </div>
+                      {lookupError ? (
+                        <Alert variant="destructive">
+                          <AlertDescription>{lookupError}</AlertDescription>
+                        </Alert>
+                      ) : null}
+                      {lookupResult ? (
+                        <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-4">
+                          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-500">
+                            Confirm invite
+                          </p>
+                          <div className="flex items-center gap-4">
+                            {lookupResult.avatarUrl ? (
+                              <img
+                                src={lookupResult.avatarUrl}
+                                alt=""
+                                className="h-14 w-14 shrink-0 rounded-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#004ba8] font-semibold text-white">
+                                {profileInitials({
+                                  fullName: lookupResult.fullName,
+                                  email: lookupResult.email,
+                                })}
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate font-semibold text-gray-900">{lookupResult.fullName}</p>
+                              <p className="truncate text-sm text-gray-600">{lookupResult.email}</p>
+                            </div>
+                          </div>
+                          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                            <div className="space-y-2 sm:w-44">
+                              <Label>Role</Label>
+                              <Select
+                                value={memberRole}
+                                onValueChange={(v) =>
+                                  setMemberRole(v as 'member' | 'guest')
+                                }
+                                disabled={memberSaving}
+                              >
+                                <SelectTrigger className="bg-input-background w-full">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="member">Member</SelectItem>
+                                  <SelectItem value="guest">Guest</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <Button
+                              type="button"
+                              className="w-full bg-[#004ba8] hover:bg-[#003d8a] sm:w-auto"
+                              onClick={() => void handleAddMember()}
+                              disabled={memberSaving || lookupLoading}
+                            >
+                              {memberSaving ? 'Adding…' : 'Add to workspace'}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
-                </div>
+                  </>
+                ) : null}
 
                 {isWorkspaceOwner ? (
                   <>
                     <Separator className="my-2" />
                     <div className="rounded-lg border border-red-200 bg-red-50/50 p-4">
-                      <p className="font-medium text-red-900">Vùng nguy hiểm</p>
+                      <p className="font-medium text-red-900">Danger zone</p>
                       <p className="mt-1 text-sm text-red-800/90">
-                        Xóa vĩnh viễn workspace này. Thao tác không hoàn tác.
+                        Permanently delete this workspace. This cannot be undone.
                       </p>
                       <Button
                         type="button"
@@ -590,7 +591,7 @@ export default function WorkspaceSettingsDialog({
                         onClick={() => setDeleteWsOpen(true)}
                         disabled={saving || deleteWsLoading}
                       >
-                        Xóa workspace
+                        Delete workspace
                       </Button>
                     </div>
                   </>
@@ -600,7 +601,7 @@ export default function WorkspaceSettingsDialog({
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-              Hủy
+              Cancel
             </Button>
             <Button
               type="button"
@@ -608,7 +609,7 @@ export default function WorkspaceSettingsDialog({
               onClick={() => void handleSave()}
               disabled={saving}
             >
-              {saving ? 'Đang lưu…' : 'Lưu'}
+              {saving ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -617,20 +618,20 @@ export default function WorkspaceSettingsDialog({
       <AlertDialog open={removeTarget != null} onOpenChange={(o) => !o && setRemoveTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Gỡ thành viên?</AlertDialogTitle>
+            <AlertDialogTitle>Remove member?</AlertDialogTitle>
             <AlertDialogDescription>
               {removeTarget
-                ? `Người dùng ${removeTarget.fullName} (${removeTarget.email}) sẽ bị gỡ khỏi workspace.`
+                ? `${removeTarget.fullName} (${removeTarget.email}) will be removed from this workspace.`
                 : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Hủy</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-600 hover:bg-red-700"
               onClick={() => void handleConfirmRemove()}
             >
-              Gỡ
+              Remove
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -639,14 +640,13 @@ export default function WorkspaceSettingsDialog({
       <AlertDialog open={deleteWsOpen} onOpenChange={setDeleteWsOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Xóa workspace?</AlertDialogTitle>
+            <AlertDialogTitle>Delete workspace?</AlertDialogTitle>
             <AlertDialogDescription>
-              Toàn bộ dữ liệu workspace trên máy chủ có thể bị ảnh hưởng. Bạn sẽ được chuyển sang workspace
-              khác nếu còn.
+              All data for this workspace on the server may be removed. If you have another workspace, you will switch to it.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteWsLoading}>Hủy</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleteWsLoading}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-600 hover:bg-red-700"
               onClick={(e) => {
@@ -655,7 +655,7 @@ export default function WorkspaceSettingsDialog({
               }}
               disabled={deleteWsLoading}
             >
-              {deleteWsLoading ? 'Đang xóa…' : 'Xóa workspace'}
+              {deleteWsLoading ? 'Deleting…' : 'Delete workspace'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,5 +1,6 @@
 import type { Task } from '@/types/task';
 import type { DashboardTask } from '@/types/dashboard-task';
+import { isTaskDueOverdue } from '@/lib/overview-task-utils';
 
 /** Đồng bộ với tab List / Board. */
 export type DuePreset = 'all' | 'no_due' | 'has_due' | 'overdue' | 'today' | 'week' | 'month' | 'custom';
@@ -9,11 +10,6 @@ export function formatYmd(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
-}
-
-export function isOverdue(dateValue: string, taskStatus: Task['status']): boolean {
-  if (!dateValue || taskStatus === 'done') return false;
-  return new Date(dateValue).getTime() < new Date().getTime();
 }
 
 export function dueBounds(
@@ -50,7 +46,8 @@ export type DashboardTaskFilterInput = {
   assignedToMeOnly: boolean;
   currentUser: { userId: number } | null;
   assigneeUserIdsByTask: Record<string, number[]>;
-  filterStatusIds: Task['status'][];
+  /** Lọc theo `statusId` (cột status cụ thể). */
+  filterTaskStatusIds: number[];
   filterListIds: number[];
   filterPriorities: Task['priority'][];
   filterAssigneeIds: number[];
@@ -67,7 +64,7 @@ export function filterDashboardTasks(input: DashboardTaskFilterInput): Dashboard
     assignedToMeOnly,
     currentUser,
     assigneeUserIdsByTask,
-    filterStatusIds,
+    filterTaskStatusIds,
     filterListIds,
     filterPriorities,
     filterAssigneeIds,
@@ -82,7 +79,7 @@ export function filterDashboardTasks(input: DashboardTaskFilterInput): Dashboard
       const ids = assigneeUserIdsByTask[task.id] ?? [];
       if (!ids.includes(currentUser.userId)) return false;
     }
-    if (filterStatusIds.length > 0 && !filterStatusIds.includes(task.status)) return false;
+    if (filterTaskStatusIds.length > 0 && !filterTaskStatusIds.includes(task.statusId)) return false;
     if (filterListIds.length > 0 && !filterListIds.includes(task.listId)) return false;
     if (filterPriorities.length > 0 && !filterPriorities.includes(task.priority)) return false;
     if (filterAssigneeIds.length > 0) {
@@ -96,7 +93,7 @@ export function filterDashboardTasks(input: DashboardTaskFilterInput): Dashboard
     }
     if (duePreset === 'no_due' && task.dueDate) return false;
     if (duePreset === 'has_due' && !task.dueDate) return false;
-    if (duePreset === 'overdue' && !isOverdue(task.dueDate, task.status)) return false;
+    if (duePreset === 'overdue' && !isTaskDueOverdue(task)) return false;
     if (['today', 'week', 'month', 'custom'].includes(duePreset) && task.dueDate) {
       const due = new Date(task.dueDate);
       if (Number.isNaN(due.getTime())) return false;

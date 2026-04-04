@@ -4,11 +4,11 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  BarChart2,
   Building2,
   Check,
   CheckSquare,
   ChevronDown,
-  Copy,
   Folder,
   PlusCircle,
   Settings,
@@ -19,7 +19,12 @@ import {
   listWorkspaces,
   listWorkspacesByOwner,
 } from '@/lib/workspace-api';
-import { getWorkspaceSnapshot, saveWorkspaceSnapshot, workspaceResponseToSnapshot } from '@/lib/workspace-storage';
+import {
+  DEFAULT_WORKSPACE,
+  getWorkspaceSnapshot,
+  saveWorkspaceSnapshot,
+  workspaceResponseToSnapshot,
+} from '@/lib/workspace-storage';
 import type { WorkspaceSnapshot } from '@/types/workspace';
 import type { WorkspaceResponse } from '@/types/api';
 import {
@@ -46,9 +51,8 @@ async function fetchWorkspacesForSwitcher(): Promise<WorkspaceResponse[]> {
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const [workspace, setWorkspace] = useState<WorkspaceSnapshot>(() => ({
-    ...getWorkspaceSnapshot(),
-  }));
+  /** Match SSR and first client render so workspace name does not flash after hydration. */
+  const [workspace, setWorkspace] = useState<WorkspaceSnapshot>(() => ({ ...DEFAULT_WORKSPACE }));
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [workspaceOptions, setWorkspaceOptions] = useState<WorkspaceResponse[]>([]);
@@ -78,8 +82,9 @@ export default function Sidebar() {
   }, []);
 
   const menuItems = [
-    { icon: CheckSquare, label: 'My Task', path: '/app/my-tasks' },
-    { icon: Folder, label: 'Project', path: '/app/projects' },
+    { icon: CheckSquare, label: 'My tasks', path: '/app/my-tasks' },
+    { icon: Folder, label: 'Projects', path: '/app/projects' },
+    { icon: BarChart2, label: 'Reports', path: '/app/reports' },
     { icon: Users, label: 'Team', path: '/app/team' },
   ];
 
@@ -87,11 +92,10 @@ export default function Sidebar() {
     if (path === '/app/projects') {
       return pathname.startsWith('/app/projects');
     }
+    if (path === '/app/reports') {
+      return pathname.startsWith('/app/reports');
+    }
     return pathname === path;
-  };
-
-  const copyWorkspaceKey = () => {
-    void navigator.clipboard.writeText(workspace.workspaceKey);
   };
 
   const selectWorkspace = (w: WorkspaceResponse) => {
@@ -138,30 +142,23 @@ export default function Sidebar() {
             className="z-[200] w-56"
             onCloseAutoFocus={(e) => e.preventDefault()}
           >
-            <DropdownMenuLabel className="font-normal text-xs text-gray-500">
-              {workspace.workspaceId != null ? `ID: ${workspace.workspaceId}` : 'Chưa đồng bộ API'}
-            </DropdownMenuLabel>
             <DropdownMenuItem
               onSelect={() => {
                 setSettingsOpen(true);
               }}
             >
               <Settings className="mr-2 h-4 w-4" />
-              Cài đặt workspace
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void copyWorkspaceKey()}>
-              <Copy className="mr-2 h-4 w-4" />
-              Sao chép mã workspace
+              Workspace settings
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-xs text-gray-500 font-normal px-2 py-1.5">
-              Chuyển workspace
+              Switch workspace
             </DropdownMenuLabel>
             <div className="max-h-48 overflow-y-auto">
               {workspacesLoading ? (
-                <div className="px-2 py-2 text-xs text-gray-500">Đang tải…</div>
+                <div className="px-2 py-2 text-xs text-gray-500">Loading…</div>
               ) : workspaceOptions.length === 0 ? (
-                <div className="px-2 py-2 text-xs text-gray-500">Chưa có workspace khác.</div>
+                <div className="px-2 py-2 text-xs text-gray-500">No other workspaces.</div>
               ) : (
                 workspaceOptions.map((w) => {
                   const active = currentId != null && w.workspaceId === currentId;
@@ -187,7 +184,7 @@ export default function Sidebar() {
               }}
             >
               <PlusCircle className="mr-2 h-4 w-4" />
-              Tạo workspace mới
+              New workspace
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -222,7 +219,7 @@ export default function Sidebar() {
           </div>
           <div>
             <span className="text-lg font-semibold text-gray-900 block leading-tight">EnFlow</span>
-            <span className="text-xs text-gray-500">Quản lý công việc</span>
+            <span className="text-xs text-gray-500">Task management</span>
           </div>
         </Link>
       </div>

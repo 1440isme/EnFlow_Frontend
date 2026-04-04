@@ -31,7 +31,7 @@ export default function RegisterPage() {
       await applyAuthResponse(auth);
       router.push('/app/projects');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Đăng ký thất bại');
+      setError(err instanceof ApiError ? err.message : 'Registration failed.');
     } finally {
       setIsSubmitting(false);
     }
@@ -47,8 +47,8 @@ export default function RegisterPage() {
             </div>
             <span className="text-2xl font-semibold text-gray-900">EnFlow</span>
           </div>
-          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Tạo tài khoản</h1>
-          <p className="text-gray-600">Đăng ký để bắt đầu quản lý công việc</p>
+          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Create account</h1>
+          <p className="text-gray-600">Sign up to get started</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8">
@@ -59,12 +59,12 @@ export default function RegisterPage() {
               </Alert>
             ) : null}
             <div className="space-y-2">
-              <Label htmlFor="fullName">Họ và tên</Label>
+              <Label htmlFor="fullName">Full name</Label>
               <Input
                 id="fullName"
                 type="text"
                 autoComplete="name"
-                placeholder="Nguyễn Văn A"
+                placeholder="Jane Doe"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 required
@@ -78,7 +78,7 @@ export default function RegisterPage() {
                 id="email"
                 type="email"
                 autoComplete="email"
-                placeholder="your@email.com"
+                placeholder="you@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -87,7 +87,7 @@ export default function RegisterPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">Mật khẩu</Label>
+              <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
                 type="password"
@@ -105,15 +105,15 @@ export default function RegisterPage() {
               disabled={isSubmitting}
               className="w-full bg-[#004ba8] hover:bg-[#003d8a] text-white py-6 disabled:opacity-70"
             >
-              {isSubmitting ? 'Đang đăng ký…' : 'Đăng ký'}
+              {isSubmitting ? 'Creating account…' : 'Create account'}
             </Button>
           </form>
 
           <div className="mt-6 text-center">
             <p className="text-gray-600 text-sm">
-              Đã có tài khoản?{' '}
+              Already have an account?{' '}
               <Link href="/login" className="text-[#004ba8] hover:underline font-medium">
-                Đăng nhập
+                Sign in
               </Link>
             </p>
           </div>

@@ -59,7 +59,7 @@ export default function CreateListDialog({
     const trimmedDescription = description.trim();
 
     if (!isProjectIdValid) {
-      setError('Không xác định được project hiện tại.');
+      setError('Could not determine current project.');
       return;
     }
 

@@ -17,7 +17,8 @@ const TAG_ACCENT_PALETTE = [
   '#1d4ed8',
 ];
 
-function normalizeHex(c: string | null | undefined): string | null {
+/** Chuẩn hoá `#rgb` / `#rrggbb` (và bỏ alpha nếu có) — dùng chung badge/tag/status. */
+export function normalizeHexColor(c: string | null | undefined): string | null {
   if (c == null || typeof c !== 'string') return null;
   const s = c.trim().toLowerCase();
   if (!s) return null;
@@ -35,7 +36,7 @@ export function pickDistinctTagColor(existingColors: (string | null | undefined)
   const usage = new Map<string, number>();
   for (const p of TAG_ACCENT_PALETTE) usage.set(p, 0);
   for (const c of existingColors) {
-    const n = normalizeHex(c);
+    const n = normalizeHexColor(c);
     if (n && usage.has(n)) usage.set(n, (usage.get(n) ?? 0) + 1);
   }
   let best = TAG_ACCENT_PALETTE[0];

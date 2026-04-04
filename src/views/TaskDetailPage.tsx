@@ -34,6 +34,8 @@ import {
   Save,
   Tag,
   Trash2,
+  Check,
+  ChevronDown,
   UserRound,
   Video,
 } from "lucide-react";
@@ -51,6 +53,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/components/ui/utils";
@@ -90,15 +98,16 @@ import {
 } from "@/lib/task-api";
 import {
   mapBackendPriority,
-  mapBackendStatusGroup,
   mapFrontendPriorityToBackend,
   pickPrimaryAssignee,
 } from "@/lib/dashboard-task-mapper";
 import { ApiError, parseErrorMessage } from "@/lib/http";
 import { formatTaskPriorityLabel } from "@/lib/task-priority-ui";
 import {
+  formatStatusLabel,
   normalizeBackendStatusGroupKey,
-  statusBadgeTone,
+  statusBadgePresentation,
+  statusMenuItemPresentation,
 } from "@/lib/task-status-ui";
 import { getCurrentUser, getUserById } from "@/lib/user-api";
 import { getProjectById } from "@/lib/project-api";
@@ -148,7 +157,7 @@ function initials(name: string) {
 }
 
 function formatDate(value: string | null | undefined) {
-  if (!value) return "Chua co";
+  if (!value) return "None";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("vi-VN", {
@@ -159,7 +168,7 @@ function formatDate(value: string | null | undefined) {
 }
 
 function formatDateTime(value: string | null | undefined) {
-  if (!value) return "Chua co";
+  if (!value) return "None";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("vi-VN", {
@@ -243,7 +252,7 @@ function toBackendDueDate(value: string) {
 }
 
 function formatDays(value: number | null | undefined) {
-  if (value == null) return "Chua co";
+  if (value == null) return "None";
   return `${value} ngay`;
 }
 
@@ -296,9 +305,6 @@ function buildProgress(task: TaskResponse, statusGroup?: string) {
   return 0;
 }
 
-function statusGroupToTaskStatus(group?: BackendStatusGroup | string) {
-  return mapBackendStatusGroup(String(group ?? ""));
-}
 
 function isTaskDone(group?: string, completedAt?: string | null) {
   return (
@@ -396,6 +402,15 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     [statusOptions, task?.statusId],
   );
 
+  const headerStatusBadge = useMemo(
+    () =>
+      statusBadgePresentation(
+        currentStatus?.statusGroup ?? "to_do",
+        currentStatus?.color,
+      ),
+    [currentStatus?.statusGroup, currentStatus?.color],
+  );
+
   const progressValue = useMemo(
     () => (task ? buildProgress(task, currentStatus?.statusGroup) : 0),
     [currentStatus?.statusGroup, task],
@@ -413,7 +428,9 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       taskId: task.taskId,
       title: task.title,
       description: task.description ?? "",
-      status: statusGroupToTaskStatus(currentStatus?.statusGroup),
+      status: currentStatus ? formatStatusOptionLabel(currentStatus) : getTaskVisualStatus(task, undefined),
+      statusGroup: String(currentStatus?.statusGroup ?? ""),
+      statusColor: currentStatus?.color ?? null,
       priority: mapBackendPriority(task.priority),
       assignee:
         primary?.fullName?.trim() ||
@@ -439,7 +456,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       updatedAt: task.updatedAt,
       assigneesDisplay: assigneeRows,
     };
-  }, [currentStatus?.statusGroup, task, taskAssignees, taskTags, viewer]);
+  }, [currentStatus, task, taskAssignees, taskTags, viewer]);
 
   const mapCommentItems = useCallback(
     (rows: CommentResponse[]): CommentItem[] =>
@@ -728,7 +745,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       const message =
         err instanceof ApiError
           ? err.message
-          : parseErrorMessage(err) || "Khong tai duoc chi tiet task.";
+          : parseErrorMessage(err) || "Could not load task details.";
       setError(message);
       setTask(null);
       setTaskTags([]);
@@ -793,7 +810,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         const message =
           err instanceof ApiError
             ? err.message
-            : parseErrorMessage(err) || "Khong cap nhat duoc task.";
+            : parseErrorMessage(err) || "Could not update task.";
         setError(message);
       } finally {
         setIsSaving(false);
@@ -819,7 +836,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
               ? (task.completedAt ?? new Date().toISOString())
               : null,
         },
-        "Da cap nhat trang thai task.",
+        "Status updated.",
       );
     },
     [persistTask, statusOptions, task],
@@ -833,7 +850,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
             value as DashboardTask["priority"],
           ),
         },
-        "Da cap nhat priority.",
+        "Priority updated.",
       );
     },
     [persistTask],
@@ -842,14 +859,14 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
   const handleDueDateSave = useCallback(async () => {
     await persistTask(
       { dueDate: toBackendDueDate(dueDateDraft) },
-      "Da cap nhat due date.",
+      "Due date updated.",
     );
   }, [dueDateDraft, persistTask]);
 
   const handleDescriptionSave = useCallback(async () => {
     await persistTask(
       { description: descriptionDraft.trim() || null },
-      "Da cap nhat description.",
+      "Description updated.",
     );
     setIsEditingDescription(false);
   }, [descriptionDraft, persistTask]);
@@ -876,7 +893,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     if (!titleDraft.trim()) return;
     await persistTask(
       { title: titleDraft.trim() },
-      "Da cap nhat tieu de task.",
+      "Title updated.",
     );
   }, [persistTask, titleDraft]);
 
@@ -900,7 +917,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     if (!task) return;
     await persistTask(
       { archived: !task.archived },
-      task.archived ? "Da bo luu tru task." : "Da luu tru task.",
+      task.archived ? "Task unarchived." : "Task archived.",
     );
   }, [persistTask, task]);
 
@@ -921,7 +938,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       const message =
         err instanceof ApiError
           ? err.message
-          : parseErrorMessage(err) || "Khong xoa duoc task.";
+          : parseErrorMessage(err) || "Could not delete task.";
       setError(message);
     } finally {
       setIsDeleting(false);
@@ -942,7 +959,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         const message =
           err instanceof ApiError
             ? err.message
-            : parseErrorMessage(err) || "Khong cap nhat duoc subtask.";
+            : parseErrorMessage(err) || "Could not update subtask.";
         setError(message);
       } finally {
         setSubtaskBusyId(null);
@@ -966,7 +983,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         const message =
           err instanceof ApiError
             ? err.message
-            : parseErrorMessage(err) || "Khong them duoc assignee cho subtask.";
+            : parseErrorMessage(err) || "Could not add subtask assignee.";
         setError(message);
       } finally {
         setSubtaskBusyId(null);
@@ -987,7 +1004,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         const message =
           err instanceof ApiError
             ? err.message
-            : parseErrorMessage(err) || "Khong xoa duoc assignee cua subtask.";
+            : parseErrorMessage(err) || "Could not remove subtask assignee.";
         setError(message);
       } finally {
         setSubtaskBusyId(null);
@@ -1008,12 +1025,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
           isPrimary: isFirstAssignee,
         });
         await refreshTaskAssignees(task, viewer);
-        setSaveMessage("Da them assignee.");
+        setSaveMessage("Assignee added.");
       } catch (err) {
         const message =
           err instanceof ApiError
             ? err.message
-            : parseErrorMessage(err) || "Khong them duoc assignee.";
+            : parseErrorMessage(err) || "Could not add assignee.";
         setError(message);
       } finally {
         setAssigneeBusy(false);
@@ -1030,12 +1047,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       try {
         await removeTaskAssignee(task.taskId, userId);
         await refreshTaskAssignees(task, viewer);
-        setSaveMessage("Da cap nhat assignee.");
+        setSaveMessage("Assignee updated.");
       } catch (err) {
         const message =
           err instanceof ApiError
             ? err.message
-            : parseErrorMessage(err) || "Khong xoa duoc assignee.";
+            : parseErrorMessage(err) || "Could not remove assignee.";
         setError(message);
       } finally {
         setAssigneeBusy(false);
@@ -1073,12 +1090,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
               ),
           ),
         ]);
-        setSaveMessage("Da them attachment.");
+        setSaveMessage("Attachment added.");
       } catch (err) {
         const message =
           err instanceof ApiError
             ? err.message
-            : parseErrorMessage(err) || "Khong them duoc attachment.";
+            : parseErrorMessage(err) || "Could not add attachment.";
         setError(message);
       } finally {
         setAttachmentBusy(false);
@@ -1093,12 +1110,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     try {
       await deleteAttachment(attachmentId);
       setAttachments((prev) => prev.filter((item) => item.id !== attachmentId));
-      setSaveMessage("Da xoa attachment.");
+      setSaveMessage("Attachment removed.");
     } catch (err) {
       const message =
         err instanceof ApiError
           ? err.message
-          : parseErrorMessage(err) || "Khong xoa duoc attachment.";
+          : parseErrorMessage(err) || "Could not remove attachment.";
       setError(message);
     } finally {
       setAttachmentBusy(false);
@@ -1118,12 +1135,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       userCacheRef.current.set(viewer.userId, viewer);
       setComments((prev) => [...prev, ...mapCommentItems([created])]);
       setCommentDraft("");
-      setSaveMessage("Da them comment.");
+      setSaveMessage("Comment added.");
     } catch (err) {
       const message =
         err instanceof ApiError
           ? err.message
-          : parseErrorMessage(err) || "Khong them duoc comment.";
+          : parseErrorMessage(err) || "Could not add comment.";
       setError(message);
     } finally {
       setCommentBusy(false);
@@ -1136,12 +1153,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     try {
       await deleteComment(commentId);
       setComments((prev) => prev.filter((item) => item.id !== commentId));
-      setSaveMessage("Da xoa comment.");
+      setSaveMessage("Comment deleted.");
     } catch (err) {
       const message =
         err instanceof ApiError
           ? err.message
-          : parseErrorMessage(err) || "Khong xoa duoc comment.";
+          : parseErrorMessage(err) || "Could not delete comment.";
       setError(message);
     } finally {
       setCommentBusy(false);
@@ -1259,8 +1276,9 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                   <Badge
                     className={cn(
                       "rounded-full border px-3 py-1 text-[11px] font-semibold",
-                      statusBadgeTone(currentStatus?.statusGroup ?? "to_do"),
+                      headerStatusBadge.className,
                     )}
+                    style={headerStatusBadge.style}
                   >
                     {getTaskVisualStatus(task, currentStatus?.statusGroup)}
                   </Badge>
@@ -1293,26 +1311,79 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                         <span>Status</span>
                       </div>
                       <div className="min-w-0">
-                        <Select
-                          value={String(task.statusId)}
-                          onValueChange={(value) =>
-                            void handleStatusChange(Number(value))
-                          }
-                        >
-                          <SelectTrigger className="h-10 rounded-xl border-slate-200 bg-white">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {statusOptions.map((status) => (
-                              <SelectItem
-                                key={status.statusId}
-                                value={String(status.statusId)}
-                              >
-                                {formatStatusOptionLabel(status)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              disabled={
+                                isSaving ||
+                                statusOptions.length === 0 ||
+                                task.archived
+                              }
+                              className={cn(
+                                "inline-flex h-10 w-full max-w-md items-center justify-between gap-2 rounded-xl border px-3 text-left text-sm font-semibold shadow-none outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60",
+                                headerStatusBadge.className,
+                              )}
+                              style={headerStatusBadge.style}
+                            >
+                              <span className="min-w-0 truncate">
+                                {currentStatus
+                                  ? formatStatusLabel(currentStatus)
+                                  : "—"}
+                              </span>
+                              <ChevronDown
+                                className="size-4 shrink-0 opacity-60"
+                                aria-hidden
+                              />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="start"
+                            className="min-w-[min(100vw-2rem,20rem)] max-w-md p-1"
+                            onCloseAutoFocus={(event) => event.preventDefault()}
+                          >
+                            {statusOptions.map((status) => {
+                              const menu = statusMenuItemPresentation(
+                                status.statusGroup,
+                                status.color,
+                              );
+                              const selected = status.statusId === task.statusId;
+                              return (
+                                <DropdownMenuItem
+                                  key={status.statusId}
+                                  className="cursor-pointer gap-2 rounded-md px-2 py-2 focus:bg-slate-50"
+                                  onSelect={() =>
+                                    void handleStatusChange(status.statusId)
+                                  }
+                                >
+                                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                                    <span
+                                      className={menu.dotClassName}
+                                      style={menu.dotStyle}
+                                      aria-hidden
+                                    />
+                                    <span
+                                      className={cn(
+                                        "truncate text-sm font-medium",
+                                        menu.labelClassName,
+                                      )}
+                                    >
+                                      {formatStatusLabel(status)}
+                                    </span>
+                                  </span>
+                                  {selected ? (
+                                    <Check
+                                      className="size-4 shrink-0 text-slate-400"
+                                      strokeWidth={2.5}
+                                    />
+                                  ) : (
+                                    <span className="size-4 shrink-0" aria-hidden />
+                                  )}
+                                </DropdownMenuItem>
+                              );
+                            })}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
 
@@ -1520,6 +1591,10 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                         (status) =>
                           status.statusId === subtaskRow.task.statusId,
                       );
+                      const subtaskStatusBadge = statusBadgePresentation(
+                        subtaskStatus?.statusGroup ?? "to_do",
+                        subtaskStatus?.color,
+                      );
                       const done = isTaskDone(
                         subtaskStatus?.statusGroup,
                         subtaskRow.task.completedAt,
@@ -1533,7 +1608,11 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                         taskId: subtaskRow.task.taskId,
                         title: subtaskRow.task.title,
                         description: subtaskRow.task.description ?? "",
-                        status: statusGroupToTaskStatus(subtaskStatus?.statusGroup),
+                        status: subtaskStatus
+                          ? formatStatusOptionLabel(subtaskStatus)
+                          : getTaskVisualStatus(subtaskRow.task, undefined),
+                        statusGroup: String(subtaskStatus?.statusGroup ?? ""),
+                        statusColor: subtaskStatus?.color ?? null,
                         priority: mapBackendPriority(subtaskRow.task.priority),
                         assignee:
                           pickPrimaryAssignee(
@@ -1621,46 +1700,96 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                             />
                           </div>
                           <div className="flex items-center">
-                            <Select
-                              value={String(subtaskRow.task.statusId)}
-                              onValueChange={(value) =>
-                                void handleSubtaskUpdate(subtaskRow.task.taskId, {
-                                  statusId: Number(value),
-                                  completedAt:
-                                    normalizeBackendStatusGroupKey(
-                                      statusOptions.find(
-                                        (status) =>
-                                          status.statusId === Number(value),
-                                      )?.statusGroup ?? "",
-                                    ) === "completed"
-                                      ? subtaskRow.task.completedAt ??
-                                        new Date().toISOString()
-                                      : null,
-                                })
-                              }
-                            >
-                              <SelectTrigger
-                                className={cn(
-                                  "h-8 rounded-full border px-3 text-[11px] font-semibold shadow-none",
-                                  statusBadgeTone(
-                                    subtaskStatus?.statusGroup ?? "to_do",
-                                  ),
-                                )}
-                                disabled={subtaskBusyId === subtaskRow.task.taskId}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    subtaskBusyId === subtaskRow.task.taskId ||
+                                    statusOptions.length === 0
+                                  }
+                                  className={cn(
+                                    "inline-flex h-8 max-w-full min-w-0 items-center gap-1 rounded-full border px-3 text-left text-[11px] font-semibold shadow-none outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60",
+                                    subtaskStatusBadge.className,
+                                  )}
+                                  style={subtaskStatusBadge.style}
+                                >
+                                  <span className="min-w-0 max-w-[9rem] truncate">
+                                    {subtaskStatus
+                                      ? formatStatusLabel(subtaskStatus)
+                                      : "—"}
+                                  </span>
+                                  <ChevronDown
+                                    className="size-3 shrink-0 opacity-70"
+                                    aria-hidden
+                                  />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                align="start"
+                                className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[min(100vw-2rem,14rem)] max-w-[16rem] p-1"
+                                onCloseAutoFocus={(event) =>
+                                  event.preventDefault()
+                                }
                               >
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {statusOptions.map((status) => (
-                                  <SelectItem
-                                    key={status.statusId}
-                                    value={String(status.statusId)}
-                                  >
-                                    {formatStatusOptionLabel(status)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                                {statusOptions.map((status) => {
+                                  const menu = statusMenuItemPresentation(
+                                    status.statusGroup,
+                                    status.color,
+                                  );
+                                  const selected =
+                                    status.statusId === subtaskRow.task.statusId;
+                                  return (
+                                    <DropdownMenuItem
+                                      key={status.statusId}
+                                      className="cursor-pointer gap-2 rounded-md px-2 py-1.5 focus:bg-slate-50"
+                                      onSelect={() =>
+                                        void handleSubtaskUpdate(
+                                          subtaskRow.task.taskId,
+                                          {
+                                            statusId: status.statusId,
+                                            completedAt:
+                                              normalizeBackendStatusGroupKey(
+                                                status.statusGroup ?? "",
+                                              ) === "completed"
+                                                ? subtaskRow.task.completedAt ??
+                                                  new Date().toISOString()
+                                                : null,
+                                          },
+                                        )
+                                      }
+                                    >
+                                      <span className="flex min-w-0 flex-1 items-center gap-2">
+                                        <span
+                                          className={menu.dotClassName}
+                                          style={menu.dotStyle}
+                                          aria-hidden
+                                        />
+                                        <span
+                                          className={cn(
+                                            "truncate text-sm font-medium",
+                                            menu.labelClassName,
+                                          )}
+                                        >
+                                          {formatStatusLabel(status)}
+                                        </span>
+                                      </span>
+                                      {selected ? (
+                                        <Check
+                                          className="size-4 shrink-0 text-slate-400"
+                                          strokeWidth={2.5}
+                                        />
+                                      ) : (
+                                        <span
+                                          className="size-4 shrink-0"
+                                          aria-hidden
+                                        />
+                                      )}
+                                    </DropdownMenuItem>
+                                  );
+                                })}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                           <div className="text-sm text-slate-600">
                             <Select

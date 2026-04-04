@@ -1,18 +1,16 @@
 {
-  "name": "@figma/my-make-file",
+  "name": "@enflow/enflow-fe",
   "private": true,
   "version": "0.0.1",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "clean": "node -e \"try{require('fs').rmSync('.next',{recursive:true,force:true})}catch(e){}\"",
+    "dev:clean": "npm run clean && next dev"
   },
   "dependencies": {
-    "@emotion/react": "11.14.0",
-    "@emotion/styled": "11.14.1",
-    "@mui/icons-material": "7.3.5",
-    "@mui/material": "7.3.5",
-    "@popperjs/core": "2.11.8",
     "@radix-ui/react-accordion": "1.2.3",
     "@radix-ui/react-alert-dialog": "1.1.6",
     "@radix-ui/react-aspect-ratio": "1.1.2",
@@ -39,7 +37,6 @@
     "@radix-ui/react-toggle-group": "1.1.2",
     "@radix-ui/react-toggle": "1.1.2",
     "@radix-ui/react-tooltip": "1.1.8",
-    "canvas-confetti": "1.9.4",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "1.1.1",
@@ -47,7 +44,6 @@
     "embla-carousel-react": "8.6.0",
     "input-otp": "1.4.2",
     "lucide-react": "0.487.0",
-    "motion": "12.23.24",
     "next": "^14.2.23",
     "next-themes": "0.4.6",
     "react": "^18.3.1",
@@ -56,10 +52,7 @@
     "react-dnd-html5-backend": "16.0.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "7.55.0",
-    "react-popper": "2.3.0",
     "react-resizable-panels": "2.1.7",
-    "react-responsive-masonry": "2.7.1",
-    "react-slick": "0.31.0",
     "recharts": "2.15.2",
     "sonner": "2.0.3",
     "tailwind-merge": "3.2.0",
@@ -74,5 +67,8 @@
     "postcss": "^8.4.49",
     "tailwindcss": "4.1.12",
     "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.18.0"
   }
 }

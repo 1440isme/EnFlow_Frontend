@@ -49,6 +49,24 @@ export type UserPublicLookupResponse = {
   avatarUrl: string | null;
 };
 
+/** GET /notifications */
+export type NotificationResponse = {
+  notificationId: number;
+  workspaceId: number | null;
+  type: string;
+  title: string;
+  body: string | null;
+  taskId: number | null;
+  projectId: number | null;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export type NotificationFeedResponse = {
+  unreadCount: number;
+  items: NotificationResponse[];
+};
+
 export type WorkspaceResponse = {
   workspaceId: number;
   name: string;
@@ -75,10 +93,10 @@ export type WorkspaceRequest = {
   isPrivate: boolean;
 };
 
-/** POST /workspaces/{id}/members — owner | admin | member | guest (UI thêm: admin, member, guest) */
+/** POST /workspaces/{id}/members — owner | member | guest (mời: member | guest) */
 export type WorkspaceMemberRequest = {
   userId: number;
-  roleInWorkspace: 'admin' | 'member' | 'guest' | null;
+  roleInWorkspace: 'member' | 'guest' | null;
 };
 
 /** GET /workspaces/{id}/members */
@@ -154,6 +172,8 @@ export type ProjectListUpdateRequest = {
 // --- STATUSES ---
 export type StatusesResponse = {
   statusId: number;
+  /** Tùy chọn: nếu backend thêm cột name sau này. */
+  name?: string | null;
   statusGroup: string;
   color: string;
   position: number;
