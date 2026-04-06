@@ -36,6 +36,8 @@ import { getWorkspaceSnapshot, saveWorkspaceSnapshot, workspaceResponseToSnapsho
 import { getStoredUserId } from '@/lib/auth-session';
 import { listWorkspaces, listWorkspacesByOwner } from '@/lib/workspace-api';
 import { personalWorkspaceKey } from '@/lib/workspace-keys';
+import { useWorkspaceRole } from '@/lib/use-workspace-role';
+import { hydrateWorkspaceRoleInSnapshot } from '@/lib/workspace-role';
 
 async function resolveWorkspaceId(): Promise<number | null> {
   let wsId = getWorkspaceSnapshot().workspaceId;
@@ -46,7 +48,14 @@ async function resolveWorkspaceId(): Promise<number | null> {
     const list = await listWorkspaces();
     const personal = list.find((w) => w.workspaceKey === personalWorkspaceKey(userId)) ?? list[0];
     if (personal) {
-      saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+      const cur = getWorkspaceSnapshot();
+      saveWorkspaceSnapshot(
+        workspaceResponseToSnapshot(
+          personal,
+          cur.workspaceId === personal.workspaceId ? cur.roleInWorkspace ?? '' : '',
+        ),
+      );
+      void hydrateWorkspaceRoleInSnapshot(personal.workspaceId);
       return personal.workspaceId;
     }
   } catch {
@@ -56,7 +65,14 @@ async function resolveWorkspaceId(): Promise<number | null> {
     const list = await listWorkspacesByOwner(userId);
     const personal = list.find((w) => w.workspaceKey === personalWorkspaceKey(userId)) ?? list[0];
     if (personal) {
-      saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+      const cur = getWorkspaceSnapshot();
+      saveWorkspaceSnapshot(
+        workspaceResponseToSnapshot(
+          personal,
+          cur.workspaceId === personal.workspaceId ? cur.roleInWorkspace ?? '' : '',
+        ),
+      );
+      void hydrateWorkspaceRoleInSnapshot(personal.workspaceId);
       return personal.workspaceId;
     }
   } catch {
@@ -67,6 +83,7 @@ async function resolveWorkspaceId(): Promise<number | null> {
 
 export default function ProjectsPage() {
   const router = useRouter();
+  const { canEdit } = useWorkspaceRole();
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [open, setOpen] = useState(false);
@@ -152,6 +169,10 @@ export default function ProjectsPage() {
   const canSubmit = Boolean(name.trim() && key.trim() && !isKeyDuplicate);
 
   const handleSaveProject = async () => {
+    if (!canEdit) {
+      setFormError('Guest chỉ được xem.');
+      return;
+    }
     if (!canSubmit) return;
     setFormError(null);
     setSubmitting(true);
@@ -194,7 +215,14 @@ export default function ProjectsPage() {
             throw new Error('No workspace found for this user.');
           }
           // persist snapshot locally for future calls
-          saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+          const cur = getWorkspaceSnapshot();
+          saveWorkspaceSnapshot(
+            workspaceResponseToSnapshot(
+              personal,
+              cur.workspaceId === personal.workspaceId ? cur.roleInWorkspace ?? '' : '',
+            ),
+          );
+          void hydrateWorkspaceRoleInSnapshot(personal.workspaceId);
           snapshot = getWorkspaceSnapshot();
           wsId = snapshot.workspaceId;
         }
@@ -229,12 +257,14 @@ export default function ProjectsPage() {
   };
 
   const openCreateDialog = () => {
+    if (!canEdit) return;
     resetForm();
     setEditingProject(null);
     setOpen(true);
   };
 
   const openEditDialog = (project: Project) => {
+    if (!canEdit) return;
     setEditingProject(project);
     setName(project.name);
     setKey(project.key);
@@ -244,12 +274,17 @@ export default function ProjectsPage() {
   };
 
   const openDeleteDialog = (project: Project) => {
+    if (!canEdit) return;
     setDeleteTarget(project);
     setDeleteError(null);
     setDeleteOpen(true);
   };
 
   const handleDeleteProject = async () => {
+    if (!canEdit) {
+      setDeleteError('Guest chỉ được xem.');
+      return;
+    }
     if (!deleteTarget) return;
     setDeleteError(null);
     setDeleting(true);
@@ -302,6 +337,7 @@ export default function ProjectsPage() {
           id="btn-new-project"
           onClick={openCreateDialog}
           className="flex items-center gap-2"
+          disabled={!canEdit}
         >
           <Plus className="w-4 h-4" />
           New Project
@@ -316,6 +352,7 @@ export default function ProjectsPage() {
           <button
             onClick={openCreateDialog}
             className="text-indigo-600 text-2xl font-semibold hover:underline"
+            disabled={!canEdit}
           >
             Create your first project →
           </button>
@@ -373,30 +410,32 @@ export default function ProjectsPage() {
                         >
                           <MoreVertical className="h-4 w-4" />
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                          <DropdownMenuItem
-                            onSelect={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              openEditDialog(project);
-                            }}
-                            className="cursor-pointer"
-                          >
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onSelect={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              openDeleteDialog(project);
-                            }}
-                            className="cursor-pointer text-red-600"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
+                        {canEdit ? (
+                          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenuItem
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                openEditDialog(project);
+                              }}
+                              className="cursor-pointer"
+                            >
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                openDeleteDialog(project);
+                              }}
+                              className="cursor-pointer text-red-600"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        ) : null}
                       </DropdownMenu>
                     </div>
                   </div>
@@ -451,6 +490,7 @@ export default function ProjectsPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 autoFocus
+                disabled={!canEdit}
               />
             </div>
 
@@ -467,6 +507,7 @@ export default function ProjectsPage() {
                   setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10));
                 }}
                 className={isKeyDuplicate ? 'border-red-400 focus-visible:ring-red-400' : ''}
+                disabled={!canEdit}
               />
               <p className="text-xs text-gray-400">
                 {isKeyDuplicate ? (
@@ -488,6 +529,7 @@ export default function ProjectsPage() {
                 placeholder="Short description of the project..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
+                disabled={!canEdit}
               />
             </div>
           </div>
@@ -499,7 +541,7 @@ export default function ProjectsPage() {
             <Button
               id="btn-create-project-confirm"
               onClick={handleSaveProject}
-              disabled={!canSubmit || submitting}
+              disabled={!canEdit || !canSubmit || submitting}
             >
               <Plus className="w-4 h-4 mr-1" />
               {submitting ? '...' : editingProject ? 'Save Project' : 'Create Project'}
@@ -532,7 +574,7 @@ export default function ProjectsPage() {
             >
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleDeleteProject} disabled={deleting}>
+            <Button variant="destructive" onClick={handleDeleteProject} disabled={!canEdit || deleting}>
               {deleting ? '...' : 'Delete'}
             </Button>
           </DialogFooter>

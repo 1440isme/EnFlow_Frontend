@@ -21,6 +21,10 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (password.length < 8) {
+      setError('Mật khẩu phải có tối thiểu 8 ký tự.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       const auth = await registerAccount({

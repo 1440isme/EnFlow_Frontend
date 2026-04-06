@@ -2,11 +2,13 @@ import { setAccessToken, clearAccessToken } from '@/lib/auth-token';
 import { saveUserProfile, clearUserProfile } from '@/lib/user-profile';
 import {
   clearWorkspaceSnapshot,
+  getWorkspaceSnapshot,
   saveWorkspaceSnapshot,
   workspaceResponseToSnapshot,
 } from '@/lib/workspace-storage';
 import { listWorkspaces, listWorkspacesByOwner } from '@/lib/workspace-api';
 import { personalWorkspaceKey } from '@/lib/workspace-keys';
+import { hydrateWorkspaceRoleInSnapshot } from '@/lib/workspace-role';
 import type { AuthResponse } from '@/types/api';
 
 const USER_ID_KEY = 'enflow_user_id';
@@ -30,7 +32,14 @@ export async function syncWorkspaceFromApi(userId: number): Promise<void> {
     const personal =
       list.find((w) => w.workspaceKey === personalWorkspaceKey(userId)) ?? list[0];
     if (personal) {
-      saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+      const cur = typeof window !== 'undefined' ? getWorkspaceSnapshot() : null;
+      saveWorkspaceSnapshot(
+        workspaceResponseToSnapshot(
+          personal,
+          cur?.workspaceId === personal.workspaceId ? cur.roleInWorkspace ?? '' : '',
+        ),
+      );
+      await hydrateWorkspaceRoleInSnapshot(personal.workspaceId);
     }
   } catch {
     try {
@@ -38,7 +47,14 @@ export async function syncWorkspaceFromApi(userId: number): Promise<void> {
       const personal =
         list.find((w) => w.workspaceKey === personalWorkspaceKey(userId)) ?? list[0];
       if (personal) {
-        saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+        const cur = typeof window !== 'undefined' ? getWorkspaceSnapshot() : null;
+        saveWorkspaceSnapshot(
+          workspaceResponseToSnapshot(
+            personal,
+            cur?.workspaceId === personal.workspaceId ? cur.roleInWorkspace ?? '' : '',
+          ),
+        );
+        await hydrateWorkspaceRoleInSnapshot(personal.workspaceId);
       }
     } catch {
       /* keep local snapshot if offline or API fails */

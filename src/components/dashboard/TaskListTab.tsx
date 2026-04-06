@@ -59,6 +59,7 @@ import { TaskBulkSelectionBar } from '@/components/tasks/TaskBulkSelectionBar';
 import { TaskBulkDeleteDialog } from '@/components/tasks/TaskBulkDeleteDialog';
 import { CreateTaskDialog } from '@/components/tasks/CreateTaskDialog';
 import { isTaskCompleted, isTaskDueOverdue } from '@/lib/overview-task-utils';
+import { useWorkspaceRole } from '@/lib/use-workspace-role';
 
 const metaColumnCell = 'min-w-0 border-l border-slate-200 pl-3';
 
@@ -137,6 +138,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
   const [statusesByListState, setStatusesByListState] = useState<StatusesByList>({});
   const [taskStatusIds, setTaskStatusIds] = useState<Record<string, number>>({});
   const [currentUser, setCurrentUser] = useState<{ userId: number; fullName: string; avatarUrl: string | null } | null>(null);
+  const { canEdit } = useWorkspaceRole();
   /** Mọi userId được gán (từ API task-assignees) — dùng cho filter + “assigned to me”. */
   const [assigneeUserIdsByTask, setAssigneeUserIdsByTask] = useState<Record<string, number[]>>({});
   const [createdByOptions, setCreatedByOptions] = useState<{ userId: number; name: string }[]>([]);
@@ -210,6 +212,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
       } catch {
         membersRaw = [];
       }
+      // roleInWorkspace lấy từ workspace snapshot (được hydrate khi login / switch workspace)
 
       const userById = new Map<number, UserResponse | null>();
       userById.set(me.userId, me);
@@ -401,6 +404,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
 
   const handleAddTaskAssignee = useCallback(
     async (task: DashboardTask, userId: number) => {
+      if (!canEdit) return;
       const n = task.assigneesDisplay?.length ?? 0;
       setAssigneeSavingByTask((s) => ({ ...s, [task.id]: true }));
       setError(null);
@@ -413,11 +417,12 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
         setAssigneeSavingByTask((s) => ({ ...s, [task.id]: false }));
       }
     },
-    [refreshTaskAssignees],
+    [canEdit, refreshTaskAssignees],
   );
 
   const handleRemoveTaskAssignee = useCallback(
     async (task: DashboardTask, userId: number) => {
+      if (!canEdit) return;
       setAssigneeSavingByTask((s) => ({ ...s, [task.id]: true }));
       setError(null);
       try {
@@ -429,7 +434,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
         setAssigneeSavingByTask((s) => ({ ...s, [task.id]: false }));
       }
     },
-    [refreshTaskAssignees],
+    [canEdit, refreshTaskAssignees],
   );
 
   const assignedTasks = useMemo(() => {
@@ -462,14 +467,25 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
   }, [tasks, currentUser]);
 
   const statusFilterOptions = useMemo(() => {
-    const uniq = new Map<number, StatusesResponse>();
+    if (isProjectScope) {
+      const uniqByGroup = new Map<string, StatusesResponse>();
+      statuses.forEach((s) => {
+        const groupKey = String(s.statusGroup ?? '').trim().toLowerCase();
+        if (!uniqByGroup.has(groupKey)) uniqByGroup.set(groupKey, s);
+      });
+      return [...uniqByGroup.values()]
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+        .map((s) => ({ value: s.statusId, label: formatStatusLabel(s) }));
+    }
+
+    const uniqByStatusId = new Map<number, StatusesResponse>();
     statuses.forEach((s) => {
-      if (!uniq.has(s.statusId)) uniq.set(s.statusId, s);
+      if (!uniqByStatusId.has(s.statusId)) uniqByStatusId.set(s.statusId, s);
     });
-    return [...uniq.values()]
+    return [...uniqByStatusId.values()]
       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
       .map((s) => ({ value: s.statusId, label: formatStatusLabel(s) }));
-  }, [statuses]);
+  }, [isProjectScope, statuses]);
 
   const listFilterOptions = useMemo(() => {
     return [...lists]
@@ -671,6 +687,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
   }, [allFilteredSelected, filteredTasks]);
 
   const runBulkDelete = useCallback(async () => {
+    if (!canEdit) return;
     const numericIds = selectedTaskIds.map((id) => Number(id));
     if (numericIds.length === 0) return;
     setBulkDeleting(true);
@@ -712,11 +729,12 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
     } finally {
       setBulkDeleting(false);
     }
-  }, [selectedTaskIds]);
+  }, [canEdit, selectedTaskIds]);
 
   const getStatusOptions = (task: DashboardTask) => sortStatuses(statusesByListState[task.listId] ?? []);
 
   const handleTaskStatusChange = async (task: DashboardTask, nextStatusId: number) => {
+    if (!canEdit) return;
     const nextStatus = getStatusOptions(task).find((s) => s.statusId === nextStatusId);
     if (!nextStatus) return;
     const previousStatusId = taskStatusIds[task.id] ?? task.statusId;
@@ -772,6 +790,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
   };
 
   const handleTaskPriorityChange = async (task: DashboardTask, nextPriority: Task['priority']) => {
+    if (!canEdit) return;
     if (task.priority === nextPriority) return;
     const previousPriority = task.priority;
     setTasks((c) => c.map((item) => (item.id === task.id ? { ...item, priority: nextPriority } : item)));
@@ -815,6 +834,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
   };
 
   const handleTaskDueDateChange = async (task: DashboardTask, dateInput: string) => {
+    if (!canEdit) return;
     const previousDueDate = task.dueDate;
     const nextDueDate = toBackendDueDate(dateInput);
     setTasks((c) => c.map((item) => (item.id === task.id ? { ...item, dueDate: nextDueDate ?? '' } : item)));
@@ -1176,6 +1196,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
               setSubtaskParentForDialog(null);
               setCreateTaskOpen(true);
             }}
+            disabled={!canEdit}
           >
             <Plus className="w-4 h-4" />
             Add Task
@@ -1187,7 +1208,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
         <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
       ) : null}
 
-      {filteredTasks.length > 0 ? (
+      {filteredTasks.length > 0 && canEdit ? (
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
             <Checkbox
@@ -1263,16 +1284,18 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
                   >
                     <MoreVertical className="h-4 w-4" />
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem className="cursor-pointer" onClick={() => handleRenameClick(list)}>
-                      <Pencil className="mr-2 h-4 w-4" />
-                      Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuItem className="cursor-pointer text-red-600" onClick={() => handleDeleteClick(list)}>
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
+                  {canEdit ? (
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem className="cursor-pointer" onClick={() => handleRenameClick(list)}>
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="cursor-pointer text-red-600" onClick={() => handleDeleteClick(list)}>
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  ) : null}
                 </DropdownMenu>
               </div>
               <span className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
@@ -1361,6 +1384,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
                                         );
                                       },
                                     }}
+                                    readOnly={!canEdit}
                                     layout="withAssignees"
                                     taskDetailHref={`/app/tasks/${task.id}`}
                                       onStatusChange={handleTaskStatusChange}
@@ -1374,17 +1398,21 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
                                       statusSaving={Boolean(savingTaskIds[task.id])}
                                       prioritySaving={Boolean(prioritySavingTaskIds[task.id])}
                                       dueDateSaving={Boolean(dueDateSavingTaskIds[task.id])}
-                                      assigneeEditable
+                                      assigneeEditable={canEdit}
                                       workspaceMembersForAssignee={workspaceMembersForPicker}
                                       assigneeSaving={Boolean(assigneeSavingByTask[task.id])}
                                       onAddTaskAssignee={handleAddTaskAssignee}
                                       onRemoveTaskAssignee={handleRemoveTaskAssignee}
                                       workspaceId={projectWorkspaceId}
-                                      onAddSubtask={(t) => {
-                                        setSubtaskParentForDialog(t);
-                                        setCreateTaskOpen(true);
-                                      }}
-                                      onTaskTagsChange={handleTaskTagsChange}
+                                      onAddSubtask={
+                                        canEdit
+                                          ? (t) => {
+                                              setSubtaskParentForDialog(t);
+                                              setCreateTaskOpen(true);
+                                            }
+                                          : undefined
+                                      }
+                                      onTaskTagsChange={canEdit ? handleTaskTagsChange : undefined}
                                     />
                                   ))}
                                 </div>
@@ -1404,13 +1432,15 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
         );
       })}
 
-      <TaskBulkDeleteDialog
-        open={bulkDeleteDialogOpen}
-        onOpenChange={setBulkDeleteDialogOpen}
-        count={selectedTaskIds.length}
-        onConfirm={runBulkDelete}
-        deleting={bulkDeleting}
-      />
+      {canEdit ? (
+        <TaskBulkDeleteDialog
+          open={bulkDeleteDialogOpen}
+          onOpenChange={setBulkDeleteDialogOpen}
+          count={selectedTaskIds.length}
+          onConfirm={runBulkDelete}
+          deleting={bulkDeleting}
+        />
+      ) : null}
     </div>
   );
 }

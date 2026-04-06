@@ -75,6 +75,8 @@ export type TaskTableRowProps = {
   currentStatusId: number;
   /** Checkbox chọn task (bulk actions). */
   selection: TaskTableRowSelection;
+  /** Guest/read-only: chỉ xem, không chỉnh sửa. */
+  readOnly?: boolean;
   /** Trang chi tiết task — chỉ tiêu đề task là link (click vào tên mới điều hướng). */
   taskDetailHref: string;
   onStatusChange: (task: DashboardTask, statusId: number) => void;
@@ -105,6 +107,7 @@ export function TaskTableRow({
   statuses,
   currentStatusId,
   selection,
+  readOnly = false,
   taskDetailHref,
   onStatusChange,
   onPriorityChange,
@@ -131,7 +134,8 @@ export function TaskTableRow({
     : { className: 'border-slate-200 bg-slate-50 text-slate-600', style: undefined };
   const gridClass = layout === 'withAssignees' ? TASK_TABLE_GRID_WITH_ASSIGNEE : MY_TASKS_TABLE_GRID;
 
-  const showRowQuickActions = Boolean(onAddSubtask || (workspaceId != null && workspaceId > 0 && onTaskTagsChange));
+  const showRowQuickActions =
+    !readOnly && Boolean(onAddSubtask || (workspaceId != null && workspaceId > 0 && onTaskTagsChange));
 
   const tagPills: TaskTagEntry[] =
     task.tagEntries && task.tagEntries.length > 0
@@ -176,6 +180,7 @@ export function TaskTableRow({
           onCheckedChange={(v) => selection.onCheckedChange(v === true)}
           aria-label={`Select task ${task.title}`}
           className="border-slate-300"
+          disabled={readOnly}
         />
       </div>
 
@@ -204,7 +209,7 @@ export function TaskTableRow({
               {visibleTags.map((tag) => {
                 const bg = tag.tagColor?.trim() || '#94a3b8';
                 const fg = contrastTextOnHex(bg);
-                const canRemove = Boolean(onTaskTagsChange && tag.tagId >= 1);
+                const canRemove = Boolean(!readOnly && onTaskTagsChange && tag.tagId >= 1);
                 return (
                   <span
                     key={`${tag.tagId}-${tag.tagName}`}
@@ -297,7 +302,7 @@ export function TaskTableRow({
 
       {layout === 'withAssignees' ? (
         <div className="flex min-w-0 items-center" onClick={(e) => e.stopPropagation()}>
-          {assigneeEditable && onAddTaskAssignee && onRemoveTaskAssignee ? (
+          {!readOnly && assigneeEditable && onAddTaskAssignee && onRemoveTaskAssignee ? (
             <TaskAssigneeCell
               task={task}
               members={workspaceMembersForAssignee}
@@ -316,7 +321,7 @@ export function TaskTableRow({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              disabled={Boolean(statusSaving) || statuses.length === 0}
+              disabled={readOnly || Boolean(statusSaving) || statuses.length === 0}
               className={cn(
                 'inline-flex h-7 max-w-full items-center gap-1 rounded-lg border px-2 py-0.5 text-left text-xs font-semibold shadow-none outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60',
                 statusBadge.className,
@@ -341,7 +346,11 @@ export function TaskTableRow({
                 <DropdownMenuItem
                   key={status.statusId}
                   className="cursor-pointer gap-2 rounded-md px-2 py-1.5 focus:bg-slate-50"
-                  onSelect={() => onStatusChange(task, status.statusId)}
+                  disabled={readOnly}
+                  onSelect={() => {
+                    if (readOnly) return;
+                    onStatusChange(task, status.statusId);
+                  }}
                 >
                   <span className="flex min-w-0 flex-1 items-center gap-2">
                     <span
@@ -370,7 +379,7 @@ export function TaskTableRow({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              disabled={Boolean(prioritySaving)}
+              disabled={readOnly || Boolean(prioritySaving)}
               className={cn(
                 'inline-flex h-7 w-fit max-w-full items-center gap-1 rounded-md border border-transparent px-0.5 py-0.5 text-xs font-semibold capitalize outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60',
                 priorityTone[task.priority],
@@ -397,7 +406,11 @@ export function TaskTableRow({
                 <DropdownMenuItem
                   key={priorityOption}
                   className="cursor-pointer gap-2 rounded-md px-2 py-1.5 focus:bg-slate-50"
-                  onSelect={() => onPriorityChange(task, priorityOption)}
+                  disabled={readOnly}
+                  onSelect={() => {
+                    if (readOnly) return;
+                    onPriorityChange(task, priorityOption);
+                  }}
                 >
                   <span className="flex min-w-0 flex-1 items-center gap-2">
                     <Flag className={cn('size-4 shrink-0', pm.flag)} strokeWidth={2} />
@@ -432,8 +445,9 @@ export function TaskTableRow({
             <Input
               type="date"
               value={dueDateDraft}
-              disabled={Boolean(dueDateSaving)}
+              disabled={readOnly || Boolean(dueDateSaving)}
               onChange={(event) => {
+                if (readOnly) return;
                 const v = event.target.value;
                 onDueDateDraftChange(v);
                 onDueDateSave(v);

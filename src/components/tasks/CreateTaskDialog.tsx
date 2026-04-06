@@ -26,6 +26,7 @@ import {
   saveWorkspaceSnapshot,
   workspaceResponseToSnapshot,
 } from '@/lib/workspace-storage';
+import { hydrateWorkspaceRoleInSnapshot } from '@/lib/workspace-role';
 import { addTaskAssignee, createTask } from '@/lib/task-api';
 import { ApiError } from '@/lib/http';
 import type { Task } from '@/types/task';
@@ -44,7 +45,14 @@ async function resolveCurrentWorkspaceId(): Promise<number | null> {
     const list = await listWorkspaces();
     const personal = list.find((w) => w.workspaceKey === personalWorkspaceKey(userId)) ?? list[0];
     if (personal) {
-      saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+      const cur = getWorkspaceSnapshot();
+      saveWorkspaceSnapshot(
+        workspaceResponseToSnapshot(
+          personal,
+          cur.workspaceId === personal.workspaceId ? cur.roleInWorkspace ?? '' : '',
+        ),
+      );
+      void hydrateWorkspaceRoleInSnapshot(personal.workspaceId);
       return personal.workspaceId;
     }
   } catch {
@@ -54,7 +62,14 @@ async function resolveCurrentWorkspaceId(): Promise<number | null> {
     const list = await listWorkspacesByOwner(userId);
     const personal = list.find((w) => w.workspaceKey === personalWorkspaceKey(userId)) ?? list[0];
     if (personal) {
-      saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+      const cur = getWorkspaceSnapshot();
+      saveWorkspaceSnapshot(
+        workspaceResponseToSnapshot(
+          personal,
+          cur.workspaceId === personal.workspaceId ? cur.roleInWorkspace ?? '' : '',
+        ),
+      );
+      void hydrateWorkspaceRoleInSnapshot(personal.workspaceId);
       return personal.workspaceId;
     }
   } catch {
@@ -139,6 +154,18 @@ export function CreateTaskDialog({
   }, []);
 
   useEffect(() => {
+    if (!open) return;
+    // Khi đổi workspace trong lúc dialog đang mở (My Tasks), form context có thể không còn hợp lệ.
+    if (lockedProjectId == null && parentTaskId == null) {
+      setCreateProjectId('');
+      setCreateListId('');
+      setCreateStatusId('');
+      setCreateFormStatuses([]);
+      setCreateError(null);
+    }
+  }, [workspaceRev, open, lockedProjectId, parentTaskId]);
+
+  useEffect(() => {
     if (open && parentTaskId != null) {
       setCreateTitle('');
       setCreateDescription('');
@@ -180,8 +207,12 @@ export function CreateTaskDialog({
         if (cancelled) return;
         setCreateProjectsCatalog(projects);
         setCreateProjectId((prev) => {
-          if (prev === '' || typeof prev !== 'number') return prev;
-          return projects.some((p) => p.idProject === prev) ? prev : '';
+          if (typeof prev === 'number') {
+            return projects.some((p) => p.idProject === prev) ? prev : '';
+          }
+          // Auto-pick để tránh dialog mở ra nhưng nút Create luôn bị disable khi user quên chọn.
+          if (projects.length === 1) return projects[0].idProject;
+          return projects.length > 0 ? projects[0].idProject : '';
         });
       } catch {
         if (!cancelled) {

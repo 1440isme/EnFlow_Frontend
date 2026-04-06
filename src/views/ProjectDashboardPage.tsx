@@ -16,6 +16,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { getProjectById, getProjectListsStatuses } from '@/lib/project-api';
 import type { ProjectListResponse } from '@/types/api';
 import { getWorkspaceSnapshot } from '@/lib/workspace-storage';
+import { useWorkspaceEntityGuard } from '@/lib/use-workspace-entity-guard';
 
 function ProjectDashboardContent() {
   const params = useParams();
@@ -28,6 +29,7 @@ function ProjectDashboardContent() {
   const listIdFromQuery = searchParams.get('listId');
   const [activeTab, setActiveTab] = useState('overview');
   const [lists, setLists] = useState<ProjectListResponse[]>([]);
+  const [listsHydrated, setListsHydrated] = useState(false);
 
   const selectedListId = listIdFromQuery ? Number(listIdFromQuery) : null;
   const selectedView = selectedListId ? `list-${selectedListId}` : 'project';
@@ -50,14 +52,18 @@ function ProjectDashboardContent() {
   const loadProjectLists = useCallback(async () => {
     if (!projectId) {
       setLists([]);
+      setListsHydrated(true);
       return;
     }
 
+    setListsHydrated(false);
     try {
       const response = await getProjectListsStatuses(Number(projectId));
       setLists(normalizeCollection<ProjectListResponse>(response.lists));
     } catch (err) {
       console.error(err);
+    } finally {
+      setListsHydrated(true);
     }
   }, [projectId]);
 
@@ -65,31 +71,15 @@ function ProjectDashboardContent() {
     void loadProjectLists();
   }, [loadProjectLists]);
 
-  /** When switching workspace: if this project is not in that workspace, go back to projects. */
-  useEffect(() => {
-    if (!Number.isFinite(projectIdNumber) || projectIdNumber <= 0) return;
-
-    const verify = async () => {
-      const snapWs = getWorkspaceSnapshot().workspaceId;
-      if (snapWs == null) return;
-      try {
-        const p = await getProjectById(projectIdNumber);
-        if (p.workspaceId !== snapWs) {
-          router.replace('/app/projects');
-        }
-      } catch {
-        router.replace('/app/projects');
-      }
-    };
-
-    const onWorkspaceChanged = () => {
-      void verify();
-    };
-
-    window.addEventListener('enflow-workspace-changed', onWorkspaceChanged);
-    void verify();
-    return () => window.removeEventListener('enflow-workspace-changed', onWorkspaceChanged);
-  }, [projectIdNumber, router]);
+  useWorkspaceEntityGuard({
+    entityWorkspaceId: null,
+    fetchEntityWorkspaceId: async () => {
+      if (!Number.isFinite(projectIdNumber) || projectIdNumber <= 0) return null;
+      const p = await getProjectById(projectIdNumber);
+      return p.workspaceId ?? null;
+    },
+    onMismatch: () => router.replace('/app/projects'),
+  });
 
   useEffect(() => {
     const handleListsChanged = () => {
@@ -101,6 +91,17 @@ function ProjectDashboardContent() {
       window.removeEventListener('enflow:lists-changed', handleListsChanged);
     };
   }, [loadProjectLists]);
+
+  useEffect(() => {
+    if (!listsHydrated || !selectedListId) return;
+    const stillExists = lists.some((list) => list.listProjectId === selectedListId);
+    if (stillExists) return;
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete('listId');
+    const query = nextParams.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname);
+  }, [listsHydrated, lists, selectedListId, searchParams, router, pathname]);
 
   const projectTitle =
     nameFromQuery && nameFromQuery.trim().length > 0

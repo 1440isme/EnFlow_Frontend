@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import type { Task, Priority } from '@/types/task';
 import type { DashboardTask } from '@/types/dashboard-task';
-import type { ProjectListResponse, StatusesResponse, UserResponse } from '@/types/api';
+import type { ProjectListResponse, StatusesResponse, UserResponse, WorkspaceMemberResponse } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Filter, Plus } from 'lucide-react';
@@ -19,6 +19,7 @@ import {
   type TaskResponse,
 } from '@/lib/task-api';
 import { getCurrentUser, getUserById } from '@/lib/user-api';
+import { getProjectById } from '@/lib/project-api';
 import { taskAssigneeRowsToDisplay } from '@/lib/task-assignee-utils';
 import { toDashboardTask } from '@/lib/dashboard-task-mapper';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -27,6 +28,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/components/ui/utils';
 import { formatStatusLabel, sortStatuses } from '@/lib/task-status-ui';
 import { formatTaskPriorityLabel, TASK_PRIORITY_DISPLAY_ORDER } from '@/lib/task-priority-ui';
+import { normalizeStatusGroup } from '@/lib/status-groups';
 import {
   type DuePreset,
   dueBounds,
@@ -34,6 +36,8 @@ import {
   formatYmd,
   taskDueDateKey,
 } from '@/lib/project-dashboard-filters';
+import { listWorkspaceMembers } from '@/lib/workspace-api';
+import { useWorkspaceRole } from '@/lib/use-workspace-role';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 const MAX_TASKS_PER_CELL = 3;
@@ -85,6 +89,7 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
   const params = useParams();
   const projectId = params?.projectId as string;
   const projectNum = Number(projectId);
+  const { canEdit } = useWorkspaceRole();
 
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()));
 
@@ -132,11 +137,20 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
         avatarUrl: me.avatarUrl ?? null,
       });
 
-      const [rawTasks, listRows, statusRows] = await Promise.all([
+      const [rawTasks, listRows, statusRows, project] = await Promise.all([
         listId ? listTaskResponsesByList(listId) : listTaskResponsesByProject(projectNum),
         getListsByProject(projectNum),
         listId ? getStatusesByList(listId) : getStatusesByProject(projectNum),
+        getProjectById(projectNum),
       ]);
+
+      let membersRaw: WorkspaceMemberResponse[] = [];
+      try {
+        membersRaw = await listWorkspaceMembers(project.workspaceId);
+      } catch {
+        membersRaw = [];
+      }
+      // roleInWorkspace lấy từ workspace snapshot (được hydrate khi login / switch workspace)
 
       const statusData = normalizeCollection<StatusesResponse>(statusRows);
       const byList: StatusesByList = {};
@@ -298,14 +312,25 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
   ]);
 
   const statusFilterOptions = useMemo(() => {
-    const uniq = new Map<number, StatusesResponse>();
+    if (!listId) {
+      const uniqByGroup = new Map<string, StatusesResponse>();
+      statuses.forEach((s) => {
+        const groupKey = normalizeStatusGroup(s.statusGroup);
+        if (!uniqByGroup.has(groupKey)) uniqByGroup.set(groupKey, s);
+      });
+      return [...uniqByGroup.values()]
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+        .map((s) => ({ value: s.statusId, label: formatStatusLabel(s) }));
+    }
+
+    const uniqByStatusId = new Map<number, StatusesResponse>();
     statuses.forEach((s) => {
-      if (!uniq.has(s.statusId)) uniq.set(s.statusId, s);
+      if (!uniqByStatusId.has(s.statusId)) uniqByStatusId.set(s.statusId, s);
     });
-    return [...uniq.values()]
+    return [...uniqByStatusId.values()]
       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
       .map((s) => ({ value: s.statusId, label: formatStatusLabel(s) }));
-  }, [statuses]);
+  }, [listId, statuses]);
 
   const listFilterOptions = useMemo(() => {
     return [...lists].sort((a, b) => a.name.localeCompare(b.name)).map((list) => ({ id: list.listProjectId, name: list.name }));
@@ -365,7 +390,7 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
     <div className="space-y-4">
       <CreateTaskDialog
         open={createTaskOpen}
-        onOpenChange={setCreateTaskOpen}
+        onOpenChange={canEdit ? setCreateTaskOpen : () => {}}
         lockedProjectId={projectNum}
         defaultListId={listId ?? undefined}
         onCreated={() => void loadData()}
@@ -596,7 +621,12 @@ export default function ProjectCalendarPanel({ listId, scopeLabel }: Props) {
             </Avatar>
           </Button>
 
-          <Button type="button" className="gap-2 bg-[#0057b8] hover:bg-[#00489a]" onClick={() => setCreateTaskOpen(true)}>
+          <Button
+            type="button"
+            className="gap-2 bg-[#0057b8] hover:bg-[#00489a]"
+            onClick={() => setCreateTaskOpen(true)}
+            disabled={!canEdit}
+          >
             <Plus className="w-4 h-4" />
             Add Task
           </Button>

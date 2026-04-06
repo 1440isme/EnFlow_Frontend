@@ -29,6 +29,7 @@ import { lookupUserByEmail } from '@/lib/user-api';
 import { profileInitials } from '@/lib/user-profile';
 import { addWorkspaceMember, createWorkspace } from '@/lib/workspace-api';
 import { saveWorkspaceSnapshot, workspaceResponseToSnapshot } from '@/lib/workspace-storage';
+import { hydrateWorkspaceRoleInSnapshot } from '@/lib/workspace-role';
 import type { UserPublicLookupResponse } from '@/types/api';
 
 type PendingInvite = {
@@ -161,6 +162,7 @@ export default function CreateWorkspaceDialog({ open, onOpenChange, onCreated }:
       }
 
       saveWorkspaceSnapshot(workspaceResponseToSnapshot(created));
+      void hydrateWorkspaceRoleInSnapshot(created.workspaceId);
       onCreated?.();
       onOpenChange(false);
     } catch (e) {
