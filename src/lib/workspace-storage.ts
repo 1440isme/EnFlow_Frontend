@@ -10,6 +10,7 @@ export const DEFAULT_WORKSPACE: WorkspaceSnapshot = {
   workspaceKey: 'my-workspace',
   description: '',
   isPrivate: false,
+  roleInWorkspace: '',
 };
 
 function parse(raw: string | null): WorkspaceSnapshot {
@@ -28,6 +29,7 @@ function parse(raw: string | null): WorkspaceSnapshot {
           : DEFAULT_WORKSPACE.workspaceKey,
       description: typeof o.description === 'string' ? o.description : '',
       isPrivate: typeof o.isPrivate === 'boolean' ? o.isPrivate : false,
+      roleInWorkspace: typeof o.roleInWorkspace === 'string' ? o.roleInWorkspace : '',
     };
   } catch {
     return { ...DEFAULT_WORKSPACE };
@@ -51,7 +53,7 @@ export function clearWorkspaceSnapshot(): void {
   }
 }
 
-export function workspaceResponseToSnapshot(w: WorkspaceResponse): WorkspaceSnapshot {
+export function workspaceResponseToSnapshot(w: WorkspaceResponse, roleInWorkspace: string = ''): WorkspaceSnapshot {
   return {
     workspaceId: w.workspaceId,
     ownerUserId: w.ownerUserId,
@@ -59,5 +61,6 @@ export function workspaceResponseToSnapshot(w: WorkspaceResponse): WorkspaceSnap
     workspaceKey: w.workspaceKey,
     description: w.description ?? '',
     isPrivate: w.isPrivate,
+    roleInWorkspace,
   };
 }

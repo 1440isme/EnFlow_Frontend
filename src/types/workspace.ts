@@ -7,4 +7,6 @@ export type WorkspaceSnapshot = {
   workspaceKey: string;
   description: string;
   isPrivate: boolean;
+  /** Vai trò của user hiện tại trong workspace đang chọn (owner/member/guest). */
+  roleInWorkspace?: string;
 };

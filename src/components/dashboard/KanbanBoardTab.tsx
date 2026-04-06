@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import type { Task, Priority } from '@/types/task';
 import type { DashboardTask } from '@/types/dashboard-task';
-import type { ProjectListResponse, ProjectListWithStatusesResponse, StatusesResponse, UserResponse } from '@/types/api';
+import type { ProjectListResponse, ProjectListWithStatusesResponse, StatusesResponse, UserResponse, WorkspaceMemberResponse } from '@/types/api';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Calendar } from 'lucide-react';
@@ -14,7 +14,7 @@ import { Filter, MoreVertical, Plus, Trash2 } from 'lucide-react';
 import CreateStatusDialog from './CreateStatusDialog';
 import DeleteStatusDialog from './DeleteStatusDialog';
 import { CreateTaskDialog } from '@/components/tasks/CreateTaskDialog';
-import { getProjectListsStatuses } from '@/lib/project-api';
+import { getProjectById, getProjectListsStatuses } from '@/lib/project-api';
 import {
   getTaskAssignees,
   getTaskTags,
@@ -24,8 +24,10 @@ import {
   type TaskResponse,
 } from '@/lib/task-api';
 import { getCurrentUser, getUserById } from '@/lib/user-api';
+import { listWorkspaceMembers } from '@/lib/workspace-api';
 import { taskAssigneeRowsToDisplay } from '@/lib/task-assignee-utils';
 import { toDashboardTask } from '@/lib/dashboard-task-mapper';
+import { useWorkspaceRole } from '@/lib/use-workspace-role';
 import { Checkbox } from '../ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -300,6 +302,7 @@ export default function KanbanBoardTab({ listId }: Props) {
   const params = useParams();
   const projectId = params?.projectId as string;
   const projectNum = Number(projectId);
+  const { canEdit } = useWorkspaceRole();
 
   const [tasks, setTasks] = useState<DashboardTask[]>([]);
   const [statuses, setStatuses] = useState<StatusesResponse[]>([]);
@@ -351,10 +354,19 @@ export default function KanbanBoardTab({ listId }: Props) {
         avatarUrl: me.avatarUrl ?? null,
       });
 
-      const [rawTasks, listStatusRows] = await Promise.all([
+      const [rawTasks, listStatusRows, project] = await Promise.all([
         listId ? listTaskResponsesByList(listId) : listTaskResponsesByProject(projectNum),
         getProjectListsStatuses(projectNum),
+        getProjectById(projectNum),
       ]);
+
+      let membersRaw: WorkspaceMemberResponse[] = [];
+      try {
+        membersRaw = await listWorkspaceMembers(project.workspaceId);
+      } catch {
+        membersRaw = [];
+      }
+      // roleInWorkspace lấy từ workspace snapshot (được hydrate khi login / switch workspace)
 
       const listData = normalizeCollection<ProjectListWithStatusesResponse>(listStatusRows?.lists ?? []);
       const statusData = (listId
@@ -451,15 +463,18 @@ export default function KanbanBoardTab({ listId }: Props) {
   };
 
   const handleStatusCreated = async () => {
+    if (!canEdit) return;
     await loadData();
   };
 
   const handleDeleteStatusClick = (status: StatusesResponse) => {
+    if (!canEdit) return;
     setStatusToDelete(status);
     setDeleteStatusOpen(true);
   };
 
   const handleStatusDeleted = async () => {
+    if (!canEdit) return;
     await loadData();
   };
 
@@ -479,14 +494,25 @@ export default function KanbanBoardTab({ listId }: Props) {
   }, [assignedToMeOnly, duePreset, filterAssigneeIds.length, filterListIds.length, filterPriorities.length, filterReporterIds.length, filterTaskStatusIds.length, filterTagNames.length]);
 
   const statusFilterOptions = useMemo(() => {
-    const uniq = new Map<number, StatusesResponse>();
+    if (!listId) {
+      const uniqByGroup = new Map<string, StatusesResponse>();
+      statuses.forEach((s) => {
+        const groupKey = normalizeStatusGroup(s.statusGroup);
+        if (!uniqByGroup.has(groupKey)) uniqByGroup.set(groupKey, s);
+      });
+      return [...uniqByGroup.values()]
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+        .map((s) => ({ value: s.statusId, label: formatStatusLabel(s) }));
+    }
+
+    const uniqByStatusId = new Map<number, StatusesResponse>();
     statuses.forEach((s) => {
-      if (!uniq.has(s.statusId)) uniq.set(s.statusId, s);
+      if (!uniqByStatusId.has(s.statusId)) uniqByStatusId.set(s.statusId, s);
     });
-    return [...uniq.values()]
+    return [...uniqByStatusId.values()]
       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
       .map((s) => ({ value: s.statusId, label: formatStatusLabel(s) }));
-  }, [statuses]);
+  }, [listId, statuses]);
 
   const listFilterOptions = useMemo(() => {
     return [...lists]
@@ -588,6 +614,7 @@ export default function KanbanBoardTab({ listId }: Props) {
   });
 
   const handleDrop = async (taskId: string, displayedStatusId: number) => {
+    if (!canEdit) return;
     const displayedStatus = displayStatuses.find((s) => s.statusId === displayedStatusId);
     if (!displayedStatus) return;
 
@@ -626,7 +653,7 @@ export default function KanbanBoardTab({ listId }: Props) {
     <div className="space-y-6">
       <CreateTaskDialog
         open={createTaskOpen}
-        onOpenChange={setCreateTaskOpen}
+        onOpenChange={canEdit ? setCreateTaskOpen : () => {}}
         lockedProjectId={projectNum}
         defaultListId={listId ?? undefined}
         onCreated={() => void loadData()}
@@ -840,7 +867,12 @@ export default function KanbanBoardTab({ listId }: Props) {
             </Avatar>
           </Button>
 
-          <Button type="button" className="gap-2 bg-[#0057b8] hover:bg-[#00489a]" onClick={() => setCreateTaskOpen(true)}>
+          <Button
+            type="button"
+            className="gap-2 bg-[#0057b8] hover:bg-[#00489a]"
+            onClick={() => setCreateTaskOpen(true)}
+            disabled={!canEdit}
+          >
             <Plus className="w-4 h-4" />
             Add Task
           </Button>
@@ -864,14 +896,14 @@ export default function KanbanBoardTab({ listId }: Props) {
                     title={title}
                     color={dotColor}
                     tasks={columnTasks}
-                    canDelete
-                    onDelete={() => handleDeleteStatusClick(status)}
+                    canDelete={canEdit}
+                    onDelete={canEdit ? () => handleDeleteStatusClick(status) : undefined}
                     onTaskClick={handleTaskClick}
                     onDrop={handleDrop}
                   />
                 );
               })}
-              <AddStatusColumn onClick={() => setCreateStatusOpen(true)} disabled={!isListScope} />
+              <AddStatusColumn onClick={() => setCreateStatusOpen(true)} disabled={!isListScope || !canEdit} />
             </>
           ) : (
             <div className="flex-1 min-w-[300px] rounded-lg border border-dashed border-gray-200 bg-white p-6 text-center text-sm text-gray-500">
@@ -881,21 +913,25 @@ export default function KanbanBoardTab({ listId }: Props) {
         </div>
       </DndProvider>
 
-      <CreateStatusDialog
-        open={createStatusOpen}
-        onOpenChange={setCreateStatusOpen}
-        projectId={projectNum}
-        lists={selectedListOptions}
-        existingStatuses={statuses}
-        onCreated={handleStatusCreated}
-      />
+      {canEdit ? (
+        <>
+          <CreateStatusDialog
+            open={createStatusOpen}
+            onOpenChange={setCreateStatusOpen}
+            projectId={projectNum}
+            lists={selectedListOptions}
+            existingStatuses={statuses}
+            onCreated={handleStatusCreated}
+          />
 
-      <DeleteStatusDialog
-        open={deleteStatusOpen}
-        onOpenChange={setDeleteStatusOpen}
-        status={statusToDelete}
-        onDeleted={handleStatusDeleted}
-      />
+          <DeleteStatusDialog
+            open={deleteStatusOpen}
+            onOpenChange={setDeleteStatusOpen}
+            status={statusToDelete}
+            onDeleted={handleStatusDeleted}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

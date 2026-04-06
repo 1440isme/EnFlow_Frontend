@@ -289,6 +289,27 @@ export async function getTaskAssignees(
   );
 }
 
+export async function getTaskAssigneesBatch(
+  taskIds: number[],
+): Promise<Record<number, TaskAssigneeResponse[]>> {
+  const ids = Array.from(new Set(taskIds.filter((id) => Number.isFinite(id) && id > 0)));
+  if (ids.length === 0) return {};
+  const raw = await requestJson<Record<string, TaskAssigneeResponse[]>>(
+    "POST",
+    `/enflow/task-assignees/tasks/batch`,
+    {
+      auth: true,
+      body: ids,
+    },
+  );
+  const out: Record<number, TaskAssigneeResponse[]> = {};
+  Object.entries(raw || {}).forEach(([k, v]) => {
+    const n = Number(k);
+    if (Number.isFinite(n)) out[n] = v ?? [];
+  });
+  return out;
+}
+
 export async function getCommentsByTask(taskId: number): Promise<CommentResponse[]> {
   return requestJson<CommentResponse[]>("GET", `/enflow/comments/tasks/${taskId}`, {
     auth: true,

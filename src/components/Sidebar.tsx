@@ -25,6 +25,7 @@ import {
   saveWorkspaceSnapshot,
   workspaceResponseToSnapshot,
 } from '@/lib/workspace-storage';
+import { hydrateWorkspaceRoleInSnapshot } from '@/lib/workspace-role';
 import type { WorkspaceSnapshot } from '@/types/workspace';
 import type { WorkspaceResponse } from '@/types/api';
 import {
@@ -99,8 +100,15 @@ export default function Sidebar() {
   };
 
   const selectWorkspace = (w: WorkspaceResponse) => {
-    saveWorkspaceSnapshot(workspaceResponseToSnapshot(w));
+    const cur = getWorkspaceSnapshot();
+    saveWorkspaceSnapshot(
+      workspaceResponseToSnapshot(
+        w,
+        cur.workspaceId === w.workspaceId ? cur.roleInWorkspace ?? '' : '',
+      ),
+    );
     refreshWorkspace();
+    void hydrateWorkspaceRoleInSnapshot(w.workspaceId);
   };
 
   const currentId = workspace.workspaceId;

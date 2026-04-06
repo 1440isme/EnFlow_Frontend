@@ -14,6 +14,21 @@ export async function getUserById(userId: number): Promise<UserResponse> {
   return requestJson<UserResponse>('GET', `/enflow/users/${userId}`, { auth: true });
 }
 
+export async function getUsersByIds(userIds: number[]): Promise<Record<number, UserResponse>> {
+  const ids = Array.from(new Set(userIds.filter((id) => Number.isFinite(id) && id > 0)));
+  if (ids.length === 0) return {};
+  const raw = await requestJson<Record<string, UserResponse>>('POST', '/enflow/users/batch', {
+    auth: true,
+    body: ids,
+  });
+  const out: Record<number, UserResponse> = {};
+  Object.entries(raw || {}).forEach(([k, v]) => {
+    const n = Number(k);
+    if (Number.isFinite(n)) out[n] = v;
+  });
+  return out;
+}
+
 export async function lookupUserByEmail(email: string): Promise<UserPublicLookupResponse> {
   const q = encodeURIComponent(email.trim());
   return requestJson<UserPublicLookupResponse>('GET', `/enflow/users/lookup?email=${q}`, {

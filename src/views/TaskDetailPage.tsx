@@ -82,6 +82,7 @@ import {
   getCommentsByTask,
   getTask,
   getTaskAssignees,
+  getTaskAssigneesBatch,
   getTaskTags,
   getStatusesByList,
   listTaskResponsesByProject,
@@ -110,8 +111,11 @@ import {
   statusMenuItemPresentation,
 } from "@/lib/task-status-ui";
 import { getCurrentUser, getUserById } from "@/lib/user-api";
+import { getUsersByIds } from "@/lib/user-api";
 import { getProjectById } from "@/lib/project-api";
 import { listWorkspaceMembers } from "@/lib/workspace-api";
+import { useWorkspaceRole } from "@/lib/use-workspace-role";
+import { useWorkspaceEntityGuard } from "@/lib/use-workspace-entity-guard";
 
 type TaskDetailPageProps = {
   taskId: string;
@@ -364,6 +368,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
   const descriptionInputRef = useRef<HTMLTextAreaElement | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement | null>(null);
   const userCacheRef = useRef<Map<number, UserResponse | null>>(new Map());
+  const { canEdit: canEditInSnapshot, workspaceId: snapshotWorkspaceId } = useWorkspaceRole();
 
   const [task, setTask] = useState<TaskResponse | null>(null);
   const [taskTags, setTaskTags] = useState<TaskTagResponse[]>([]);
@@ -376,6 +381,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     WorkspaceMemberOption[]
   >([]);
   const [viewer, setViewer] = useState<UserResponse | null>(null);
+  const [taskWorkspaceId, setTaskWorkspaceId] = useState<number | null>(null);
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [commentDraft, setCommentDraft] = useState("");
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
@@ -394,6 +400,14 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [createSubtaskOpen, setCreateSubtaskOpen] = useState(false);
+  const canEdit =
+    canEditInSnapshot &&
+    (taskWorkspaceId == null || snapshotWorkspaceId === taskWorkspaceId);
+
+  useWorkspaceEntityGuard({
+    entityWorkspaceId: taskWorkspaceId,
+    onMismatch: () => router.replace("/app/my-tasks"),
+  });
 
   const currentStatus = useMemo(
     () =>
@@ -628,12 +642,13 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         (item) => item.parentTaskId === currentTask.taskId,
       );
 
-      const rows = await Promise.all(
-        directSubtasks.map(async (subtask) => ({
-          task: subtask,
-          assignees: await getTaskAssignees(subtask.taskId).catch(() => []),
-        })),
-      );
+      const assigneesByTaskId = await getTaskAssigneesBatch(
+        directSubtasks.map((t) => t.taskId),
+      ).catch(() => ({} as Record<number, TaskAssigneeResponse[]>));
+      const rows = directSubtasks.map((subtask) => ({
+        task: subtask,
+        assignees: assigneesByTaskId[subtask.taskId] ?? [],
+      }));
 
       const cache = userCacheRef.current;
       if (currentViewer) {
@@ -648,17 +663,13 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         ),
       );
 
-      await Promise.all(
-        candidateUserIds.map(async (userId) => {
-          if (cache.has(userId)) return;
-          try {
-            const user = await getUserById(userId);
-            cache.set(userId, user);
-          } catch {
-            cache.set(userId, null);
-          }
-        }),
-      );
+      const missing = candidateUserIds.filter((id) => !cache.has(id));
+      if (missing.length > 0) {
+        const byId = await getUsersByIds(missing).catch(() => ({} as Record<number, UserResponse>));
+        missing.forEach((id) => {
+          cache.set(id, byId[id] ?? null);
+        });
+      }
 
       setSubtasks(
         rows.sort((left, right) => {
@@ -708,17 +719,11 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
           ...attachmentRows.map((item) => item.uploadedBy),
         ]),
       );
-      await Promise.all(
-        knownUserIds.map(async (userId) => {
-          if (userCacheRef.current.has(userId)) return;
-          try {
-            const user = await getUserById(userId);
-            userCacheRef.current.set(userId, user);
-          } catch {
-            userCacheRef.current.set(userId, null);
-          }
-        }),
-      );
+      const missingUsers = knownUserIds.filter((id) => !userCacheRef.current.has(id));
+      if (missingUsers.length > 0) {
+        const byId = await getUsersByIds(missingUsers).catch(() => ({} as Record<number, UserResponse>));
+        missingUsers.forEach((id) => userCacheRef.current.set(id, byId[id] ?? null));
+      }
 
       if (currentViewer) {
         setViewer(currentViewer);
@@ -737,9 +742,11 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
 
       try {
         const project = await getProjectById(loadedTask.projectId);
+        setTaskWorkspaceId(project.workspaceId);
         await loadWorkspaceMembers(project.workspaceId, knownUserIds);
       } catch {
         setWorkspaceMembers([]);
+        setTaskWorkspaceId(null);
       }
     } catch (err) {
       const message =
@@ -787,6 +794,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
 
   const persistTask = useCallback(
     async (patch: TaskUpdateRequest, successMessage: string) => {
+      if (!canEdit) return;
       if (!task) return;
       setIsSaving(true);
       setError(null);
@@ -816,7 +824,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setIsSaving(false);
       }
     },
-    [task],
+    [canEdit, task],
   );
 
   const handleStatusChange = useCallback(
@@ -922,6 +930,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
   }, [persistTask, task]);
 
   const handleDeleteTask = useCallback(async () => {
+    if (!canEdit) return;
     if (!task || isDeleting) return;
     const confirmed = window.confirm(
       `Xoa task "${task.title}"? Hanh dong nay khong the hoan tac.`,
@@ -943,12 +952,13 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     } finally {
       setIsDeleting(false);
     }
-  }, [isDeleting, router, task]);
+  }, [canEdit, isDeleting, router, task]);
 
   const subtaskCompletionRatioLabel = `${completedSubtasksCount}/${subtasks.length}`;
 
   const handleSubtaskUpdate = useCallback(
     async (subtaskId: number, patch: TaskUpdateRequest) => {
+      if (!canEdit) return;
       if (!task) return;
       setSubtaskBusyId(subtaskId);
       setError(null);
@@ -965,11 +975,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setSubtaskBusyId(null);
       }
     },
-    [loadSubtasks, task, viewer],
+    [canEdit, loadSubtasks, task, viewer],
   );
 
   const handleAddSubtaskAssignee = useCallback(
     async (subtaskId: number, userId: number, existingCount: number) => {
+      if (!canEdit) return;
       if (!task) return;
       setSubtaskBusyId(subtaskId);
       setError(null);
@@ -989,11 +1000,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setSubtaskBusyId(null);
       }
     },
-    [loadSubtasks, task, viewer],
+    [canEdit, loadSubtasks, task, viewer],
   );
 
   const handleRemoveSubtaskAssignee = useCallback(
     async (subtaskId: number, userId: number) => {
+      if (!canEdit) return;
       if (!task) return;
       setSubtaskBusyId(subtaskId);
       setError(null);
@@ -1010,11 +1022,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setSubtaskBusyId(null);
       }
     },
-    [loadSubtasks, task, viewer],
+    [canEdit, loadSubtasks, task, viewer],
   );
 
   const handleAddAssignee = useCallback(
     async (userId: number) => {
+      if (!canEdit) return;
       if (!task || !detailTask) return;
       setAssigneeBusy(true);
       setError(null);
@@ -1036,11 +1049,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setAssigneeBusy(false);
       }
     },
-    [detailTask, refreshTaskAssignees, task, taskAssignees.length, viewer],
+    [canEdit, detailTask, refreshTaskAssignees, task, taskAssignees.length, viewer],
   );
 
   const handleRemoveAssignee = useCallback(
     async (userId: number) => {
+      if (!canEdit) return;
       if (!task || !detailTask) return;
       setAssigneeBusy(true);
       setError(null);
@@ -1058,11 +1072,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setAssigneeBusy(false);
       }
     },
-    [detailTask, refreshTaskAssignees, task, viewer],
+    [canEdit, detailTask, refreshTaskAssignees, task, viewer],
   );
 
   const appendFiles = useCallback(
     async (files: FileList | null) => {
+      if (!canEdit) return;
       if (!files || files.length === 0 || !task || !viewer) return;
       setAttachmentBusy(true);
       setError(null);
@@ -1101,10 +1116,11 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setAttachmentBusy(false);
       }
     },
-    [mapAttachmentItems, task, viewer],
+    [canEdit, mapAttachmentItems, task, viewer],
   );
 
   const handleDeleteAttachment = useCallback(async (attachmentId: number) => {
+    if (!canEdit) return;
     setAttachmentBusy(true);
     setError(null);
     try {
@@ -1123,6 +1139,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
   }, []);
 
   const handleAddComment = useCallback(async () => {
+    if (!canEdit) return;
     if (!commentDraft.trim() || !task || !viewer) return;
     setCommentBusy(true);
     setError(null);
@@ -1145,9 +1162,10 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     } finally {
       setCommentBusy(false);
     }
-  }, [commentDraft, mapCommentItems, task, viewer]);
+  }, [canEdit, commentDraft, mapCommentItems, task, viewer]);
 
   const handleDeleteComment = useCallback(async (commentId: number) => {
+    if (!canEdit) return;
     setCommentBusy(true);
     setError(null);
     try {
@@ -1241,7 +1259,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                   size="sm"
                   className="rounded-lg border-slate-200"
                   onClick={handleToggleArchive}
-                  disabled={isSaving}
+                  disabled={!canEdit || isSaving}
                 >
                   <MoreHorizontal className="mr-2 h-4 w-4" />
                   {task.archived ? "Unarchive" : "Archive"}
@@ -1251,7 +1269,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                   size="sm"
                   className="rounded-lg border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
                   onClick={handleDeleteTask}
-                  disabled={isDeleting}
+                  disabled={!canEdit || isDeleting}
                 >
                   {isDeleting ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1297,6 +1315,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                     value={titleDraft}
                     onChange={(event) => setTitleDraft(event.target.value)}
                     onBlur={handleTitleBlur}
+                    disabled={!canEdit}
                     className="h-auto rounded-xl border border-transparent bg-transparent px-2 py-2 text-3xl font-bold tracking-tight text-slate-950 shadow-none transition-colors hover:border-slate-200 hover:bg-slate-50 focus-visible:border-slate-200 focus-visible:bg-slate-50 focus-visible:ring-0 md:text-4xl"
                   />
                 </div>
@@ -1316,6 +1335,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                             <button
                               type="button"
                               disabled={
+                                !canEdit ||
                                 isSaving ||
                                 statusOptions.length === 0 ||
                                 task.archived
@@ -1410,6 +1430,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                               void handleDueDateSave();
                             }
                           }}
+                          disabled={!canEdit}
                           className="h-9 w-[140px] rounded-xl border-rose-200 bg-rose-50/40 px-3 text-rose-600"
                         />
                       </div>
@@ -1437,13 +1458,17 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                       </div>
                       <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-2">
                         {detailTask ? (
-                          <TaskAssigneeCell
-                            task={detailTask}
-                            members={workspaceMembers}
-                            busy={assigneeBusy}
-                            onAdd={handleAddAssignee}
-                            onRemove={handleRemoveAssignee}
-                          />
+                          canEdit ? (
+                            <TaskAssigneeCell
+                              task={detailTask}
+                              members={workspaceMembers}
+                              busy={assigneeBusy}
+                              onAdd={handleAddAssignee}
+                              onRemove={handleRemoveAssignee}
+                            />
+                          ) : (
+                            <div className="px-2 py-1 text-sm text-slate-500">Read-only</div>
+                          )
                         ) : (
                           <div className="px-2 py-1 text-sm text-slate-500">
                             Empty
@@ -1463,6 +1488,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                           onValueChange={(value) =>
                             void handlePriorityChange(value)
                           }
+                          disabled={!canEdit}
                         >
                           <SelectTrigger className="h-10 rounded-xl border-slate-200 bg-white">
                             <SelectValue />
@@ -1520,6 +1546,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                       setDescriptionDraft(event.target.value)
                     }
                     onBlur={handleDescriptionBlur}
+                    disabled={!canEdit}
                     rows={6}
                     className="resize-none border-slate-200 bg-white"
                   />
@@ -1527,6 +1554,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                   <button
                     type="button"
                     onClick={() => setIsEditingDescription(true)}
+                    disabled={!canEdit}
                     className="w-full rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-left text-sm font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
                   >
                     + Add description
@@ -1535,6 +1563,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                   <button
                     type="button"
                     onClick={() => setIsEditingDescription(true)}
+                    disabled={!canEdit}
                     className="w-full rounded-xl border border-slate-200 bg-slate-50/70 p-4 text-left text-sm leading-7 text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
                   >
                     {descriptionDraft.trim()}
@@ -1564,6 +1593,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                       size="sm"
                       className="bg-[#0057B8] hover:bg-[#00489A]"
                       onClick={() => setCreateSubtaskOpen(true)}
+                      disabled={!canEdit}
                     >
                       <Plus className="mr-2 h-4 w-4" />
                       Add Task
@@ -1663,7 +1693,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                             />
                             <Input
                               defaultValue={subtaskRow.task.title}
-                              disabled={subtaskBusyId === subtaskRow.task.taskId}
+                              disabled={!canEdit || subtaskBusyId === subtaskRow.task.taskId}
                               onBlur={(event) => {
                                 const nextTitle = event.target.value.trim();
                                 const currentTitle = subtaskRow.task.title.trim();
@@ -1683,7 +1713,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                             <TaskAssigneeCell
                               task={subtaskDashboardTask}
                               members={workspaceMembers}
-                              busy={subtaskBusyId === subtaskRow.task.taskId}
+                              busy={!canEdit || subtaskBusyId === subtaskRow.task.taskId}
                               onAdd={(userId) =>
                                 handleAddSubtaskAssignee(
                                   subtaskRow.task.taskId,
@@ -1705,6 +1735,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                                 <button
                                   type="button"
                                   disabled={
+                                    !canEdit ||
                                     subtaskBusyId === subtaskRow.task.taskId ||
                                     statusOptions.length === 0
                                   }
@@ -1801,10 +1832,11 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                                   ),
                                 })
                               }
+                              disabled={!canEdit}
                             >
                               <SelectTrigger
                                 className="h-8 border-none bg-transparent px-0 text-sm font-medium shadow-none focus:ring-0"
-                                disabled={subtaskBusyId === subtaskRow.task.taskId}
+                                disabled={!canEdit || subtaskBusyId === subtaskRow.task.taskId}
                               >
                                 <SelectValue />
                               </SelectTrigger>
@@ -1820,7 +1852,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                             <Input
                               type="date"
                               defaultValue={toDateInputValue(subtaskRow.task.dueDate)}
-                              disabled={subtaskBusyId === subtaskRow.task.taskId}
+                              disabled={!canEdit || subtaskBusyId === subtaskRow.task.taskId}
                               onBlur={(event) => {
                                 const nextDueDate = toBackendDueDate(
                                   event.target.value,
@@ -1872,6 +1904,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                       setFileDragActive(false);
                       appendFiles(event.dataTransfer.files);
                     }}
+                    disabled={!canEdit}
                   >
                     <span className="inline-flex items-center gap-2 font-medium">
                       <FileUp className="h-4 w-4" />
@@ -1913,7 +1946,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                             variant="ghost"
                             size="sm"
                             className="text-slate-500"
-                            disabled={attachmentBusy}
+                            disabled={!canEdit || attachmentBusy}
                             onClick={() =>
                               void handleDeleteAttachment(attachment.id)
                             }
@@ -2090,6 +2123,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                     }
                   }}
                   placeholder="Write a comment..."
+                  disabled={!canEdit}
                   className="min-h-[34px] resize-none overflow-hidden border-none bg-transparent px-0 py-0 text-[15px] text-slate-700 shadow-none focus-visible:ring-0"
                 />
                 <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
@@ -2127,7 +2161,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                    disabled={commentBusy || !commentDraft.trim()}
+                    disabled={!canEdit || commentBusy || !commentDraft.trim()}
                     onClick={() => void handleAddComment()}
                   >
                     {commentBusy ? (

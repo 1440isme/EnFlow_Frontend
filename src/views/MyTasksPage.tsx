@@ -51,6 +51,8 @@ import { personalWorkspaceKey } from '@/lib/workspace-keys';
 import { countDirectSubtasksByParentId } from '@/lib/task-subtask-utils';
 import type { TaskTagResponse } from '@/lib/task-api';
 import { isTaskCompleted, isTaskDueOverdue } from '@/lib/overview-task-utils';
+import { useWorkspaceRole } from '@/lib/use-workspace-role';
+import { hydrateWorkspaceRoleInSnapshot } from '@/lib/workspace-role';
 
 const metaColumnCell = 'min-w-0 border-l border-slate-200 pl-3';
 
@@ -120,6 +122,7 @@ const priorityOrder: Record<Task['priority'], number> = {
 };
 
 export default function MyTasksPage() {
+  const { workspaceId: snapshotWorkspaceId, canEdit } = useWorkspaceRole();
   const [viewerName, setViewerName] = useState('User');
   const [dashboardTasks, setDashboardTasks] = useState<DashboardTask[]>([]);
   const [taskStatusIds, setTaskStatusIds] = useState<Record<string, number>>({});
@@ -163,6 +166,13 @@ export default function MyTasksPage() {
     return () => window.removeEventListener('enflow-workspace-changed', sync);
   }, []);
 
+  // Keep local state aligned to snapshot (used for workspace-scoped tag picker).
+  useEffect(() => {
+    if (snapshotWorkspaceId !== activeWorkspaceId) {
+      setActiveWorkspaceId(snapshotWorkspaceId);
+    }
+  }, [snapshotWorkspaceId, activeWorkspaceId]);
+
   const loadTasks = useCallback(async () => {
     setIsLoading(true);
     setErrorMessage(null);
@@ -180,7 +190,14 @@ export default function MyTasksPage() {
             const list = await listWorkspacesByOwner(uid);
             const personal = list.find((w) => w.workspaceKey === personalWorkspaceKey(uid)) ?? list[0];
             if (personal) {
-              saveWorkspaceSnapshot(workspaceResponseToSnapshot(personal));
+              const cur = getWorkspaceSnapshot();
+              saveWorkspaceSnapshot(
+                workspaceResponseToSnapshot(
+                  personal,
+                  cur.workspaceId === personal.workspaceId ? cur.roleInWorkspace ?? '' : '',
+                ),
+              );
+              void hydrateWorkspaceRoleInSnapshot(personal.workspaceId);
               wsId = personal.workspaceId;
               setActiveWorkspaceId(personal.workspaceId);
             }
@@ -518,6 +535,7 @@ export default function MyTasksPage() {
   }, [allFilteredSelected, filteredTasks]);
 
   const runBulkDelete = useCallback(async () => {
+    if (!canEdit) return;
     const numericIds = selectedTaskIds.map((id) => Number(id));
     if (numericIds.length === 0) return;
     setBulkDeleting(true);
@@ -552,11 +570,12 @@ export default function MyTasksPage() {
     } finally {
       setBulkDeleting(false);
     }
-  }, [selectedTaskIds]);
+  }, [canEdit, selectedTaskIds]);
 
   const getStatusOptions = (task: DashboardTask) => sortStatuses(statusesByList[task.listId] ?? []);
 
   const handleTaskStatusChange = async (task: DashboardTask, nextStatusId: number) => {
+    if (!canEdit) return;
     const nextStatus = getStatusOptions(task).find((status) => status.statusId === nextStatusId);
     if (!nextStatus) return;
 
@@ -615,6 +634,7 @@ export default function MyTasksPage() {
   };
 
   const handleTaskPriorityChange = async (task: DashboardTask, nextPriority: Task['priority']) => {
+    if (!canEdit) return;
     if (task.priority === nextPriority) return;
     const previousPriority = task.priority;
 
@@ -665,6 +685,7 @@ export default function MyTasksPage() {
   };
 
   const handleTaskDueDateChange = async (task: DashboardTask, dateInput: string) => {
+    if (!canEdit) return;
     const previousDueDate = task.dueDate;
     const nextDueDate = toBackendDueDate(dateInput);
 
@@ -1067,6 +1088,7 @@ export default function MyTasksPage() {
                   setSubtaskParentForDialog(null);
                   setCreateOpen(true);
                 }}
+                disabled={!canEdit}
               >
                 <Plus className="mr-1 size-3.5" />
                 Create Task
@@ -1110,7 +1132,7 @@ export default function MyTasksPage() {
               </div>
             ) : null}
 
-            {filteredTasks.length > 0 && selectedTaskIds.length > 0 ? (
+            {canEdit && filteredTasks.length > 0 && selectedTaskIds.length > 0 ? (
               <div className="mt-4">
                 <TaskBulkSelectionBar
                   count={selectedTaskIds.length}
@@ -1135,7 +1157,7 @@ export default function MyTasksPage() {
                       <Checkbox
                         checked={someFilteredSelected ? 'indeterminate' : allFilteredSelected}
                         onCheckedChange={handleToggleSelectAllFiltered}
-                        disabled={filteredTasks.length === 0}
+                        disabled={!canEdit || filteredTasks.length === 0}
                         aria-label="Select all tasks in current view"
                         className="border-slate-300"
                       />
@@ -1189,6 +1211,7 @@ export default function MyTasksPage() {
                                   );
                                 },
                               }}
+                              readOnly={!canEdit}
                               taskDetailHref={`/app/tasks/${task.id}`}
                               onStatusChange={handleTaskStatusChange}
                               onPriorityChange={handleTaskPriorityChange}
@@ -1204,11 +1227,15 @@ export default function MyTasksPage() {
                               prioritySaving={Boolean(prioritySavingTaskIds[task.id])}
                               dueDateSaving={Boolean(dueDateSavingTaskIds[task.id])}
                               workspaceId={activeWorkspaceId}
-                              onAddSubtask={(t) => {
-                                setSubtaskParentForDialog(t);
-                                setCreateOpen(true);
-                              }}
-                              onTaskTagsChange={handleTaskTagsChange}
+                              onAddSubtask={
+                                canEdit
+                                  ? (t) => {
+                                      setSubtaskParentForDialog(t);
+                                      setCreateOpen(true);
+                                    }
+                                  : undefined
+                              }
+                              onTaskTagsChange={canEdit ? handleTaskTagsChange : undefined}
                             />
                           );
                         })}
@@ -1221,23 +1248,29 @@ export default function MyTasksPage() {
 
       <CreateTaskDialog
         open={createOpen}
-        onOpenChange={(open) => {
-          setCreateOpen(open);
-          if (!open) setSubtaskParentForDialog(null);
-        }}
+        onOpenChange={
+          canEdit
+            ? (open) => {
+                setCreateOpen(open);
+                if (!open) setSubtaskParentForDialog(null);
+              }
+            : () => {}
+        }
         lockedProjectId={subtaskParentForDialog?.projectId ?? undefined}
         defaultListId={subtaskParentForDialog?.listId ?? undefined}
         parentTaskId={subtaskParentForDialog?.taskId ?? undefined}
         onCreated={() => void loadTasks()}
       />
 
-      <TaskBulkDeleteDialog
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-        count={selectedTaskIds.length}
-        onConfirm={runBulkDelete}
-        deleting={bulkDeleting}
-      />
+      {canEdit ? (
+        <TaskBulkDeleteDialog
+          open={deleteDialogOpen}
+          onOpenChange={setDeleteDialogOpen}
+          count={selectedTaskIds.length}
+          onConfirm={runBulkDelete}
+          deleting={bulkDeleting}
+        />
+      ) : null}
     </div>
   );
 }

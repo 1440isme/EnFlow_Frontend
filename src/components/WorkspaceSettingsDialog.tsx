@@ -50,7 +50,8 @@ import {
   formatWorkspaceRole,
   isOwnerRole,
 } from '@/lib/workspace-member-utils';
-import { saveWorkspaceSnapshot, workspaceResponseToSnapshot } from '@/lib/workspace-storage';
+import { getWorkspaceSnapshot, saveWorkspaceSnapshot, workspaceResponseToSnapshot } from '@/lib/workspace-storage';
+import { hydrateWorkspaceRoleInSnapshot } from '@/lib/workspace-role';
 import type { UserPublicLookupResponse } from '@/types/api';
 
 type MemberRow = {
@@ -102,6 +103,7 @@ export default function WorkspaceSettingsDialog({
 
   const hasServerId = snapshot.workspaceId != null;
   const canManage = canManageTeamMembers(myRoleKey);
+  const canEditWorkspace = myRoleKey.trim().toLowerCase() !== 'guest';
   const isWorkspaceOwner =
     snapshot.ownerUserId != null &&
     myUserId != null &&
@@ -171,6 +173,10 @@ export default function WorkspaceSettingsDialog({
   }, [open, hasServerId, loadMembers]);
 
   const handleSave = async () => {
+    if (!canEditWorkspace) {
+      setError('Guest chỉ được xem.');
+      return;
+    }
     setError(null);
     const trimmedName = name.trim() || snapshot.name;
     const trimmedDesc = description.trim();
@@ -198,7 +204,14 @@ export default function WorkspaceSettingsDialog({
         description: trimmedDesc,
         isPrivate,
       });
-      saveWorkspaceSnapshot(workspaceResponseToSnapshot(updated));
+      const cur = getWorkspaceSnapshot();
+      saveWorkspaceSnapshot(
+        workspaceResponseToSnapshot(
+          updated,
+          cur.workspaceId === updated.workspaceId ? cur.roleInWorkspace ?? '' : '',
+        ),
+      );
+      void hydrateWorkspaceRoleInSnapshot(updated.workspaceId);
       onSaved?.();
       onOpenChange(false);
     } catch (e) {
@@ -209,6 +222,7 @@ export default function WorkspaceSettingsDialog({
   };
 
   const handleLookupEmail = async () => {
+    if (!canEditWorkspace) return;
     setLookupError(null);
     setMemberError(null);
     setMemberOk(null);
@@ -236,6 +250,7 @@ export default function WorkspaceSettingsDialog({
   };
 
   const handleAddMember = async () => {
+    if (!canEditWorkspace) return;
     if (!hasServerId || snapshot.workspaceId == null || lookupResult == null) return;
     setMemberError(null);
     setMemberOk(null);
@@ -260,6 +275,7 @@ export default function WorkspaceSettingsDialog({
   };
 
   const handleRoleChange = async (userId: number, newRole: string) => {
+    if (!canEditWorkspace) return;
     if (!hasServerId || snapshot.workspaceId == null) return;
     setRowBusy(userId);
     setMemberError(null);
@@ -277,6 +293,7 @@ export default function WorkspaceSettingsDialog({
   };
 
   const handleConfirmRemove = async () => {
+    if (!canEditWorkspace) return;
     if (!removeTarget || !hasServerId || snapshot.workspaceId == null) return;
     setRowBusy(removeTarget.userId);
     setMemberError(null);
@@ -292,6 +309,10 @@ export default function WorkspaceSettingsDialog({
   };
 
   const handleDeleteWorkspace = async () => {
+    if (!canEditWorkspace) {
+      setError('Guest chỉ được xem.');
+      return;
+    }
     if (!hasServerId || snapshot.workspaceId == null) return;
     setDeleteWsLoading(true);
     try {
@@ -335,7 +356,7 @@ export default function WorkspaceSettingsDialog({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="bg-input-background"
-                disabled={saving}
+                disabled={!canEditWorkspace || saving}
               />
             </div>
             <div className="space-y-2">
@@ -347,7 +368,7 @@ export default function WorkspaceSettingsDialog({
                 className="bg-input-background font-mono text-sm"
                 placeholder="my-workspace"
                 readOnly={hasServerId}
-                disabled={saving}
+                disabled={!canEditWorkspace || saving}
               />
             </div>
             <div className="space-y-2">
@@ -358,14 +379,14 @@ export default function WorkspaceSettingsDialog({
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
                 className="bg-input-background"
-                disabled={saving}
+                disabled={!canEditWorkspace || saving}
               />
             </div>
             <div className="flex items-center justify-between rounded-lg border border-gray-200 p-4">
               <div>
                 <p className="font-medium text-gray-900">Private workspace</p>
               </div>
-              <Switch checked={isPrivate} onCheckedChange={setIsPrivate} disabled={saving} />
+              <Switch checked={isPrivate} onCheckedChange={setIsPrivate} disabled={!canEditWorkspace || saving} />
             </div>
 
             {hasServerId ? (
@@ -589,7 +610,7 @@ export default function WorkspaceSettingsDialog({
                         variant="destructive"
                         className="mt-3"
                         onClick={() => setDeleteWsOpen(true)}
-                        disabled={saving || deleteWsLoading}
+                        disabled={!canEditWorkspace || saving || deleteWsLoading}
                       >
                         Delete workspace
                       </Button>
@@ -607,7 +628,7 @@ export default function WorkspaceSettingsDialog({
               type="button"
               className="bg-[#004ba8] hover:bg-[#003d8a]"
               onClick={() => void handleSave()}
-              disabled={saving}
+              disabled={!canEditWorkspace || saving}
             >
               {saving ? 'Saving…' : 'Save'}
             </Button>
