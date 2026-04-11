@@ -150,11 +150,12 @@ export async function requestJson<T>(
         method,
         headers,
         body: hasBody ? JSON.stringify(options.body) : undefined,
-        credentials: crossOrigin ? 'include' : 'same-origin',
+        // Cross-origin + JWT header: không cần cookie → omit tránh CORS bắt Allow-Credentials.
+        credentials: crossOrigin ? 'omit' : 'same-origin',
       });
     } catch {
       throw new ApiError(
-        'Không kết nối được máy chủ. Kiểm tra backend đang chạy (port 8080), biến môi trường API_PROXY_TARGET / NEXT_PUBLIC_API_BASE_URL, và khởi động lại dev server sau khi sửa .env.',
+        'Không kết nối được API. Kiểm tra: (1) Trên Vercel đã thêm NEXT_PUBLIC_API_BASE_URL và bấm Redeploy — biến này chỉ có hiệu lực khi build. (2) Backend Azure đang chạy và ENFLOW_CORS_ALLOWED_ORIGINS gồm đúng URL FE (https). (3) Local: backend port 8080 và API_PROXY_TARGET / .env.local.',
         0,
         null
       );
