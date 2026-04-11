@@ -3,4 +3,6 @@ node_modules
 out
 *.log
 .env*.local
+cypress.env.json
 .DS_Store
+*.tsbuildinfo

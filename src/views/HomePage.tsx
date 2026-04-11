@@ -6,29 +6,28 @@ export default function HomePage() {
   const features = [
     {
       icon: CheckCircle2,
-      title: 'Quản lý Task hiệu quả',
-      description: 'Theo dõi và quản lý công việc một cách dễ dàng với giao diện trực quan',
+      title: 'Effective task management',
+      description: 'Track and manage work with a clear, intuitive interface.',
     },
     {
       icon: Users,
-      title: 'Cộng tác nhóm',
-      description: 'Phân công và theo dõi tiến độ của team members trong thời gian thực',
+      title: 'Team collaboration',
+      description: 'Assign work and follow progress with your team in real time.',
     },
     {
       icon: BarChart3,
-      title: 'Báo cáo & Phân tích',
-      description: 'Theo dõi hiệu suất và tiến độ dự án với dashboard và báo cáo chi tiết',
+      title: 'Reports & analytics',
+      description: 'Monitor performance and delivery with dashboards and reports.',
     },
     {
       icon: Zap,
-      title: 'Tăng năng suất',
-      description: 'Workflow được tối ưu hóa giúp team làm việc nhanh hơn và hiệu quả hơn',
+      title: 'Higher productivity',
+      description: 'Streamlined workflows help your team ship faster.',
     },
   ];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-blue-50/30 to-white">
-      {/* Header */}
       <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -39,53 +38,47 @@ export default function HomePage() {
           </div>
           <nav className="hidden md:flex items-center gap-8">
             <a href="#features" className="text-gray-600 hover:text-[#004ba8] transition-colors">
-              Tính năng
+              Features
             </a>
             <a href="#about" className="text-gray-600 hover:text-[#004ba8] transition-colors">
-              Về chúng tôi
+              About
             </a>
             <Link href="/login">
               <Button variant="outline" className="border-[#004ba8] text-[#004ba8] hover:bg-[#004ba8] hover:text-white">
-                Đăng nhập
+                Sign in
               </Button>
             </Link>
           </nav>
         </div>
       </header>
 
-      {/* Hero Section */}
       <section className="container mx-auto px-6 py-20 md:py-32">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-5xl md:text-6xl font-bold text-gray-900 mb-6">
-            Quản lý công việc{' '}
-            <span className="text-[#004ba8]">hiệu quả</span>
+            Work management{' '}
+            <span className="text-[#004ba8]">that delivers</span>
           </h1>
           <p className="text-xl text-gray-600 mb-8 leading-relaxed">
-            EnFlow giúp team của bạn tổ chức, theo dõi và hoàn thành công việc nhanh chóng hơn.
-            Giao diện đơn giản, mạnh mẽ và dễ sử dụng.
+            EnFlow helps your team organize, track, and finish work faster—with a simple, powerful UI.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/login">
               <Button className="bg-[#004ba8] hover:bg-[#003d8a] text-white px-8 py-6 text-lg">
-                Bắt đầu ngay
+                Get started
               </Button>
             </Link>
-            <Button variant="outline" className="px-8 py-6 text-lg">
-              Xem demo
-            </Button>
           </div>
         </div>
       </section>
 
-      {/* Features Section */}
       <section id="features" className="bg-white py-20">
         <div className="container mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">
-              Tính năng nổi bật
+              Highlights
             </h2>
             <p className="text-lg text-gray-600">
-              Mọi thứ bạn cần để quản lý dự án hiệu quả
+              Everything you need to run projects end to end
             </p>
           </div>
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
@@ -109,24 +102,22 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* CTA Section */}
       <section className="py-20 bg-gradient-to-r from-[#004ba8] to-[#0066cc]">
         <div className="container mx-auto px-6 text-center">
           <h2 className="text-4xl font-bold text-white mb-6">
-            Sẵn sàng tăng năng suất làm việc?
+            Ready to boost your team&apos;s output?
           </h2>
           <p className="text-xl text-blue-100 mb-8">
-            Tham gia cùng hàng ngàn team đang sử dụng EnFlow
+            Join teams already shipping with EnFlow
           </p>
           <Link href="/login">
             <Button className="bg-white text-[#004ba8] hover:bg-gray-100 px-8 py-6 text-lg">
-              Dùng thử miễn phí
+              Try for free
             </Button>
           </Link>
         </div>
       </section>
 
-      {/* Footer */}
       <footer className="bg-gray-900 text-gray-400 py-12">
         <div className="container mx-auto px-6 text-center">
           <div className="flex items-center justify-center gap-2 mb-4">

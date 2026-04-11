@@ -24,7 +24,7 @@ export default function LoginPage() {
       await loginAccount({ usernameOrEmail: usernameOrEmail.trim(), password });
       router.push('/app/projects');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Đăng nhập thất bại');
+      setError(err instanceof ApiError ? err.message : 'Sign-in failed.');
     } finally {
       setIsSubmitting(false);
     }
@@ -33,7 +33,6 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-blue-50/30 to-white flex items-center justify-center p-6">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 mb-4">
             <div className="w-10 h-10 bg-[#004ba8] rounded-lg flex items-center justify-center">
@@ -42,14 +41,13 @@ export default function LoginPage() {
             <span className="text-2xl font-semibold text-gray-900">EnFlow</span>
           </div>
           <h1 className="text-2xl font-semibold text-gray-900 mb-2">
-            Chào mừng trở lại
+            Welcome back
           </h1>
           <p className="text-gray-600">
-            Đăng nhập để tiếp tục quản lý công việc
+            Sign in to continue
           </p>
         </div>
 
-        {/* Login Form */}
         <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
             {error ? (
@@ -63,7 +61,7 @@ export default function LoginPage() {
                 id="usernameOrEmail"
                 type="text"
                 autoComplete="username"
-                placeholder="Email"
+                placeholder="you@company.com"
                 value={usernameOrEmail}
                 onChange={(e) => setUsernameOrEmail(e.target.value)}
                 required
@@ -72,7 +70,7 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">Mật khẩu</Label>
+              <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
                 type="password"
@@ -87,10 +85,10 @@ export default function LoginPage() {
             <div className="flex items-center justify-between text-sm">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" className="rounded border-gray-300" />
-                <span className="text-gray-600">Ghi nhớ đăng nhập</span>
+                <span className="text-gray-600">Remember me</span>
               </label>
               <a href="#" className="text-[#004ba8] hover:underline">
-                Quên mật khẩu?
+                Forgot password?
               </a>
             </div>
 
@@ -99,21 +97,20 @@ export default function LoginPage() {
               disabled={isSubmitting}
               className="w-full bg-[#004ba8] hover:bg-[#003d8a] text-white py-6 disabled:opacity-70"
             >
-              {isSubmitting ? 'Đang đăng nhập…' : 'Đăng nhập'}
+              {isSubmitting ? 'Signing in…' : 'Sign in'}
             </Button>
           </form>
 
           <div className="mt-6 text-center">
             <p className="text-gray-600 text-sm">
-              Chưa có tài khoản?{' '}
+              No account?{' '}
               <Link href="/register" className="text-[#004ba8] hover:underline font-medium">
-                Đăng ký ngay
+                Create one
               </Link>
             </p>
           </div>
         </div>
 
-        {/* Alternative Login */}
         <div className="mt-6">
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
@@ -121,7 +118,7 @@ export default function LoginPage() {
             </div>
             <div className="relative flex justify-center text-sm">
               <span className="px-4 bg-gradient-to-br from-white via-blue-50/30 to-white text-gray-500">
-                Hoặc đăng nhập với
+                Or continue with
               </span>
             </div>
           </div>

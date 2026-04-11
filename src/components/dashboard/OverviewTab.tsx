@@ -1,173 +1,213 @@
-import { CheckCircle2, Clock, AlertCircle, TrendingUp } from 'lucide-react';
-import type { Task, Project } from '@/types/task';
+'use client';
+
+import { ChevronRight } from 'lucide-react';
+import Link from 'next/link';
+import type { Task } from '@/types/task';
 import { Card } from '../ui/card';
 import { Progress } from '../ui/progress';
+import { useEffect, useMemo, useState } from 'react';
+import { getTaskAssignees, getTasksByList, listTasks } from '@/lib/task-api';
+import { getProjectById, type ProjectResponse } from '@/lib/project-api';
+import { isTaskCompleted, sortTasksByRecencyDesc } from '@/lib/overview-task-utils';
+import { statusAccentHex, statusBadgePresentation } from '@/lib/task-status-ui';
+import { cn } from '@/components/ui/utils';
 
-const tasks: Task[] = [];
-const projects: Project[] = [];
+type Props = {
+  projectId?: number;
+  listId?: number | null;
+  listCount?: number;
+};
 
-export default function OverviewTab() {
+export default function OverviewTab({ projectId, listId, listCount }: Props) {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [projectDetail, setProjectDetail] = useState<ProjectResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [recentEnriched, setRecentEnriched] = useState<Task[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    setError(null);
+
+    const tasksPromise = listId ? getTasksByList(listId) : listTasks(projectId);
+    const projectPromise =
+      projectId != null && Number.isFinite(projectId) && projectId > 0
+        ? getProjectById(projectId).catch(() => null)
+        : Promise.resolve(null);
+
+    Promise.all([tasksPromise, projectPromise])
+      .then(([t, p]) => {
+        if (!mounted) return;
+        setTasks(t || []);
+        setProjectDetail(p);
+      })
+      .catch((err) => {
+        console.error(err);
+        setError(err?.message || 'Could not load overview.');
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [projectId, listId]);
+
+  const sortedByRecency = useMemo(() => sortTasksByRecencyDesc(tasks), [tasks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const top = sortedByRecency.slice(0, 5);
+    if (top.length === 0) {
+      setRecentEnriched([]);
+      return;
+    }
+
+    Promise.all(
+      top.map(async (t) => {
+        try {
+          const assignees = await getTaskAssignees(Number(t.id));
+          const primary = assignees.find((a) => a.isPrimary) ?? assignees[0];
+          const name = primary?.fullName?.trim() || primary?.username?.trim() || '';
+          return { ...t, assignee: name };
+        } catch {
+          return t;
+        }
+      }),
+    ).then((rows) => {
+      if (!cancelled) setRecentEnriched(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sortedByRecency]);
+
+  if (loading) {
+    return <Card className="p-6">Loading overview…</Card>;
+  }
+
+  if (error) {
+    return <Card className="p-6 text-red-600">{error}</Card>;
+  }
+
   const totalTasks = tasks.length;
-  const completedTasks = tasks.filter((t) => t.status === 'done').length;
-  const inProgressTasks = tasks.filter((t) => t.status === 'in-progress').length;
-  const todoTasks = tasks.filter((t) => t.status === 'todo').length;
-  const highPriorityTasks = tasks.filter(
-    (t) => t.priority === 'high' || t.priority === 'urgent'
-  ).length;
-
+  const completedTasks = tasks.filter((t) => isTaskCompleted(t)).length;
   const completionRate =
     totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-  const stats = [
-    {
-      title: 'Tổng số Task',
-      value: totalTasks,
-      icon: CheckCircle2,
-      color: 'text-blue-600',
-      bgColor: 'bg-blue-50',
-    },
-    {
-      title: 'Đang thực hiện',
-      value: inProgressTasks,
-      icon: Clock,
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-50',
-    },
-    {
-      title: 'Hoàn thành',
-      value: completedTasks,
-      icon: TrendingUp,
-      color: 'text-green-600',
-      bgColor: 'bg-green-50',
-    },
-    {
-      title: 'Ưu tiên cao',
-      value: highPriorityTasks,
-      icon: AlertCircle,
-      color: 'text-red-600',
-      bgColor: 'bg-red-50',
-    },
-  ];
-
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, index) => (
-          <Card key={index} className="p-6">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">{stat.title}</p>
-                <p className="text-3xl font-semibold text-gray-900">{stat.value}</p>
-              </div>
-              <div className={`${stat.bgColor} ${stat.color} p-3 rounded-lg`}>
-                <stat.icon className="w-6 h-6" />
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="p-6">
-          <h3 className="font-semibold text-gray-900 mb-4">Tiến độ hoàn thành</h3>
-          <div className="space-y-4">
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="text-gray-600">Tổng thể</span>
-                <span className="font-medium text-gray-900">{completionRate}%</span>
-              </div>
-              <Progress value={completionRate} className="h-2" />
-            </div>
-            <div className="pt-4 border-t space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">✓ Hoàn thành</span>
-                <span className="font-medium">{completedTasks} tasks</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">→ Đang làm</span>
-                <span className="font-medium">{inProgressTasks} tasks</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">○ Chưa bắt đầu</span>
-                <span className="font-medium">{todoTasks} tasks</span>
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-6">
-          <h3 className="font-semibold text-gray-900 mb-4">Dự án đang hoạt động</h3>
-          <div className="space-y-4">
-            {projects.length === 0 ? (
-              <p className="text-sm text-gray-600">
-                Chưa có dự án. Kết nối API để tải danh sách dự án.
-              </p>
-            ) : (
-              projects.map((project) => (
-                <div key={project.id} className="flex items-center gap-3">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: project.color }}
-                  ></div>
-                  <div className="flex-1">
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="font-medium text-gray-900">{project.name}</span>
-                      <span className="text-sm text-gray-600">{project.tasksCount} tasks</span>
-                    </div>
-                    <p className="text-sm text-gray-600">{project.description}</p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </Card>
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900">Quick overview</h2>
       </div>
 
       <Card className="p-6">
-        <h3 className="font-semibold text-gray-900 mb-4">Hoạt động gần đây</h3>
-        <div className="space-y-4">
-          {tasks.length === 0 ? (
-            <p className="text-sm text-gray-600">
-              Chưa có hoạt động. Kết nối API để hiển thị task gần đây.
-            </p>
+        <h3 className="font-semibold text-gray-900 mb-4">This project</h3>
+        {projectDetail ? (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium text-gray-900 text-lg">{projectDetail.name}</span>
+              {projectDetail.projectKey ? (
+                <span className="text-xs font-mono px-2 py-0.5 rounded bg-gray-100 text-gray-700">
+                  {projectDetail.projectKey}
+                </span>
+              ) : null}
+              {projectDetail.archived ? (
+                <span className="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-700">
+                  Archived
+                </span>
+              ) : null}
+            </div>
+            {projectDetail.description?.trim() ? (
+              <p className="text-sm text-gray-600 leading-relaxed">{projectDetail.description}</p>
+            ) : (
+              <p className="text-sm text-gray-500 italic">No project description yet.</p>
+            )}
+            <div className="pt-3 border-t space-y-2">
+              <div className="flex justify-between gap-4 text-sm">
+                <span className="text-gray-600">Completion</span>
+                <span className="font-semibold tabular-nums text-gray-900">{completionRate}%</span>
+              </div>
+              <Progress value={completionRate} className="h-2.5" />
+              <p className="text-xs text-gray-500">
+                {completedTasks}/{totalTasks} tasks completed
+                {totalTasks === 0 ? ' · No tasks in this scope' : ''}
+              </p>
+            </div>
+            {listCount != null ? (
+              <div className="pt-2 border-t text-sm flex justify-between gap-4">
+                <span className="text-gray-600">Lists</span>
+                <span className="font-medium text-gray-900">{listCount}</span>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-600">Could not load project details.</p>
+        )}
+      </Card>
+
+      <Card className="p-6">
+        <h3 className="font-semibold text-gray-900 mb-1">Recent activity</h3>
+        <p className="text-sm text-gray-500 mb-4">Latest updates, up to 5 tasks.</p>
+        <div className="divide-y divide-gray-100 rounded-lg border border-gray-100 bg-white">
+          {recentEnriched.length === 0 ? (
+            <p className="p-4 text-sm text-gray-600">No tasks in this scope.</p>
           ) : (
-            tasks.slice(0, 5).map((task) => (
-              <div
-                key={task.id}
-                className="flex items-start gap-3 pb-4 border-b last:border-b-0 last:pb-0"
-              >
-                <img
-                  src={task.assigneeAvatar}
-                  alt={task.assignee}
-                  className="w-10 h-10 rounded-full"
-                />
-                <div className="flex-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-medium text-gray-900">{task.title}</p>
+            recentEnriched.map((task) => {
+              const label =
+                task.projectDisplayName?.trim() ||
+                (task.project ? `Project #${task.project}` : '');
+              const showAssignee = task.assignee.trim().length > 0;
+              const statusBadge = statusBadgePresentation(
+                task.statusGroup ?? 'to_do',
+                task.statusColor,
+              );
+              const rowAccentHex = statusAccentHex(
+                task.statusGroup ?? 'to_do',
+                task.statusColor,
+              );
+              return (
+                <Link
+                  key={task.id}
+                  href={`/app/tasks/${task.id}`}
+                  className="flex items-center gap-3 px-3 py-3 pr-2 hover:bg-gray-50/80 transition-colors group"
+                >
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <div
+                      className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: rowAccentHex }}
+                      aria-hidden
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-gray-900 group-hover:text-[#004ba8] truncate transition-colors">
+                        {task.title}
+                      </p>
                       <p className="text-sm text-gray-600">
-                        {task.assignee} • {task.project}
+                        {showAssignee ? (
+                          <>
+                            {task.assignee}
+                            {label ? ` · ${label}` : null}
+                          </>
+                        ) : (
+                          <>{label || 'Task'}</>
+                        )}
                       </p>
                     </div>
-                    <span
-                      className={`text-xs px-2 py-1 rounded-full ${
-                        task.status === 'done'
-                          ? 'bg-green-100 text-green-700'
-                          : task.status === 'in-progress'
-                            ? 'bg-orange-100 text-orange-700'
-                            : 'bg-gray-100 text-gray-700'
-                      }`}
-                    >
-                      {task.status === 'done'
-                        ? 'Hoàn thành'
-                        : task.status === 'in-progress'
-                          ? 'Đang làm'
-                          : 'Chưa làm'}
-                    </span>
                   </div>
-                </div>
-              </div>
-            ))
+                  <span
+                    className={cn(
+                      'shrink-0 max-w-[10rem] truncate rounded-full px-2 py-1 text-xs font-semibold',
+                      statusBadge.className,
+                    )}
+                    style={statusBadge.style}
+                  >
+                    {String(task.status)}
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 group-hover:text-[#004ba8] transition-colors" aria-hidden />
+                </Link>
+              );
+            })
           )}
         </div>
       </Card>
