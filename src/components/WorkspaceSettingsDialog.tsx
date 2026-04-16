@@ -103,7 +103,7 @@ export default function WorkspaceSettingsDialog({
 
   const hasServerId = snapshot.workspaceId != null;
   const canManage = canManageTeamMembers(myRoleKey);
-  const canEditWorkspace = myRoleKey.trim().toLowerCase() !== 'guest';
+  const canEditWorkspace = myRoleKey.trim().toLowerCase() === 'owner';
   const isWorkspaceOwner =
     snapshot.ownerUserId != null &&
     myUserId != null &&
@@ -174,7 +174,7 @@ export default function WorkspaceSettingsDialog({
 
   const handleSave = async () => {
     if (!canEditWorkspace) {
-      setError('Guest chỉ được xem.');
+      setError('Chỉ owner mới được chỉnh workspace.');
       return;
     }
     setError(null);
@@ -310,7 +310,7 @@ export default function WorkspaceSettingsDialog({
 
   const handleDeleteWorkspace = async () => {
     if (!canEditWorkspace) {
-      setError('Guest chỉ được xem.');
+      setError('Chỉ owner mới được chỉnh workspace.');
       return;
     }
     if (!hasServerId || snapshot.workspaceId == null) return;

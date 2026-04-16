@@ -159,7 +159,8 @@ export type CommentResponse = {
 };
 
 export type CommentCreationRequest = {
-  userId: number;
+  /** Backend lấy userId từ JWT; không truyền từ client nữa. */
+  userId?: number;
   parentCommentId?: number | null;
   content: string;
 };
@@ -179,7 +180,8 @@ export type AttachmentResponse = {
 };
 
 export type AttachmentCreationRequest = {
-  uploadedBy: number;
+  /** Backend lấy uploadedBy từ JWT; không truyền từ client nữa. */
+  uploadedBy?: number;
   fileName: string;
   fileUrl: string;
   mimeType: string;

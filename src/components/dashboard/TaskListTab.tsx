@@ -138,7 +138,8 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
   const [statusesByListState, setStatusesByListState] = useState<StatusesByList>({});
   const [taskStatusIds, setTaskStatusIds] = useState<Record<string, number>>({});
   const [currentUser, setCurrentUser] = useState<{ userId: number; fullName: string; avatarUrl: string | null } | null>(null);
-  const { canEdit } = useWorkspaceRole();
+  const { canEdit, canManageProjectStructure, canCreateTask, canManageTaskAssignments } =
+    useWorkspaceRole();
   /** Mọi userId được gán (từ API task-assignees) — dùng cho filter + “assigned to me”. */
   const [assigneeUserIdsByTask, setAssigneeUserIdsByTask] = useState<Record<string, number[]>>({});
   const [createdByOptions, setCreatedByOptions] = useState<{ userId: number; name: string }[]>([]);
@@ -966,7 +967,13 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center">
           {isProjectScope ? (
-            <Button type="button" variant="outline" className="gap-2" onClick={() => setCreateListOpen(true)}>
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2"
+              onClick={() => setCreateListOpen(true)}
+              disabled={!canManageProjectStructure}
+            >
               <Plus className="w-4 h-4" />
               Create List
             </Button>
@@ -1196,7 +1203,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
               setSubtaskParentForDialog(null);
               setCreateTaskOpen(true);
             }}
-            disabled={!canEdit}
+            disabled={!canCreateTask}
           >
             <Plus className="w-4 h-4" />
             Add Task
@@ -1208,7 +1215,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
         <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
       ) : null}
 
-      {filteredTasks.length > 0 && canEdit ? (
+      {filteredTasks.length > 0 && canManageProjectStructure ? (
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
             <Checkbox
@@ -1240,7 +1247,12 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
         <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-12 text-center text-slate-500">
           <div>{isProjectScope ? 'No lists in this project yet.' : 'No lists found.'}</div>
           {isProjectScope ? (
-            <Button type="button" onClick={() => setCreateListOpen(true)} className="gap-2">
+            <Button
+              type="button"
+              onClick={() => setCreateListOpen(true)}
+              className="gap-2"
+              disabled={!canManageProjectStructure}
+            >
               <Plus className="w-4 h-4" />
               Create List
             </Button>
@@ -1398,14 +1410,18 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
                                       statusSaving={Boolean(savingTaskIds[task.id])}
                                       prioritySaving={Boolean(prioritySavingTaskIds[task.id])}
                                       dueDateSaving={Boolean(dueDateSavingTaskIds[task.id])}
-                                      assigneeEditable={canEdit}
+                                      selectionDisabled={!canManageProjectStructure}
+                                      statusEditable={canEdit}
+                                      priorityEditable={false}
+                                      dueDateEditable={false}
+                                      assigneeEditable={canManageTaskAssignments}
                                       workspaceMembersForAssignee={workspaceMembersForPicker}
                                       assigneeSaving={Boolean(assigneeSavingByTask[task.id])}
                                       onAddTaskAssignee={handleAddTaskAssignee}
                                       onRemoveTaskAssignee={handleRemoveTaskAssignee}
                                       workspaceId={projectWorkspaceId}
                                       onAddSubtask={
-                                        canEdit
+                                        canCreateTask
                                           ? (t) => {
                                               setSubtaskParentForDialog(t);
                                               setCreateTaskOpen(true);
@@ -1432,7 +1448,7 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
         );
       })}
 
-      {canEdit ? (
+      {canManageProjectStructure ? (
         <TaskBulkDeleteDialog
           open={bulkDeleteDialogOpen}
           onOpenChange={setBulkDeleteDialogOpen}

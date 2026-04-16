@@ -75,6 +75,7 @@ export type TaskTableRowProps = {
   currentStatusId: number;
   /** Checkbox chọn task (bulk actions). */
   selection: TaskTableRowSelection;
+  selectionDisabled?: boolean;
   /** Guest/read-only: chỉ xem, không chỉnh sửa. */
   readOnly?: boolean;
   /** Trang chi tiết task — chỉ tiêu đề task là link (click vào tên mới điều hướng). */
@@ -100,6 +101,9 @@ export type TaskTableRowProps = {
   workspaceId?: number | null;
   onAddSubtask?: (task: DashboardTask) => void;
   onTaskTagsChange?: (taskId: string, rows: TaskTagResponse[]) => void;
+  statusEditable?: boolean;
+  priorityEditable?: boolean;
+  dueDateEditable?: boolean;
 };
 
 export function TaskTableRow({
@@ -107,6 +111,7 @@ export function TaskTableRow({
   statuses,
   currentStatusId,
   selection,
+  selectionDisabled = false,
   readOnly = false,
   taskDetailHref,
   onStatusChange,
@@ -126,6 +131,9 @@ export function TaskTableRow({
   workspaceId = null,
   onAddSubtask,
   onTaskTagsChange,
+  statusEditable = !readOnly,
+  priorityEditable = !readOnly,
+  dueDateEditable = !readOnly,
 }: TaskTableRowProps) {
   const [removingTagId, setRemovingTagId] = useState<number | null>(null);
   const currentStatus = statuses.find((status) => status.statusId === currentStatusId) ?? null;
@@ -180,7 +188,7 @@ export function TaskTableRow({
           onCheckedChange={(v) => selection.onCheckedChange(v === true)}
           aria-label={`Select task ${task.title}`}
           className="border-slate-300"
-          disabled={readOnly}
+          disabled={readOnly || selectionDisabled}
         />
       </div>
 
@@ -321,7 +329,7 @@ export function TaskTableRow({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              disabled={readOnly || Boolean(statusSaving) || statuses.length === 0}
+              disabled={readOnly || !statusEditable || Boolean(statusSaving) || statuses.length === 0}
               className={cn(
                 'inline-flex h-7 max-w-full items-center gap-1 rounded-lg border px-2 py-0.5 text-left text-xs font-semibold shadow-none outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60',
                 statusBadge.className,
@@ -346,9 +354,9 @@ export function TaskTableRow({
                 <DropdownMenuItem
                   key={status.statusId}
                   className="cursor-pointer gap-2 rounded-md px-2 py-1.5 focus:bg-slate-50"
-                  disabled={readOnly}
+              disabled={readOnly || !statusEditable}
                   onSelect={() => {
-                    if (readOnly) return;
+                    if (readOnly || !statusEditable) return;
                     onStatusChange(task, status.statusId);
                   }}
                 >
@@ -379,7 +387,7 @@ export function TaskTableRow({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              disabled={readOnly || Boolean(prioritySaving)}
+              disabled={readOnly || !priorityEditable || Boolean(prioritySaving)}
               className={cn(
                 'inline-flex h-7 w-fit max-w-full items-center gap-1 rounded-md border border-transparent px-0.5 py-0.5 text-xs font-semibold capitalize outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60',
                 priorityTone[task.priority],
@@ -406,9 +414,9 @@ export function TaskTableRow({
                 <DropdownMenuItem
                   key={priorityOption}
                   className="cursor-pointer gap-2 rounded-md px-2 py-1.5 focus:bg-slate-50"
-                  disabled={readOnly}
+                  disabled={readOnly || !priorityEditable}
                   onSelect={() => {
-                    if (readOnly) return;
+                    if (readOnly || !priorityEditable) return;
                     onPriorityChange(task, priorityOption);
                   }}
                 >
@@ -445,9 +453,9 @@ export function TaskTableRow({
             <Input
               type="date"
               value={dueDateDraft}
-              disabled={readOnly || Boolean(dueDateSaving)}
+              disabled={readOnly || !dueDateEditable || Boolean(dueDateSaving)}
               onChange={(event) => {
-                if (readOnly) return;
+                if (readOnly || !dueDateEditable) return;
                 const v = event.target.value;
                 onDueDateDraftChange(v);
                 onDueDateSave(v);
