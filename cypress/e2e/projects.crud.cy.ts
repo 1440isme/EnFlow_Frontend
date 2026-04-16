@@ -8,7 +8,7 @@ describe('Projects: create → edit → delete (UI)', () => {
     cy.visit('/login');
 
     cy.loginByApi().then((token) => {
-      cy.ensurePersonalWorkspaceSnapshot(token, 'member');
+      cy.ensurePersonalWorkspaceSnapshot(token, 'owner');
 
       cy.visit('/app/projects');
       cy.contains('h1', 'Projects').should('be.visible');

@@ -38,6 +38,7 @@ import {
   ChevronDown,
   UserRound,
   Video,
+  X,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -64,6 +65,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/components/ui/utils";
 import type { WorkspaceMemberOption } from "@/components/tasks/TaskAssigneeCell";
 import { TaskAssigneeCell } from "@/components/tasks/TaskAssigneeCell";
+import { AssigneeAvatarStack } from "@/components/tasks/AssigneeAvatarStack";
 import { CreateTaskDialog } from "@/components/tasks/CreateTaskDialog";
 import type { UserResponse } from "@/types/api";
 import type { DashboardTask } from "@/types/dashboard-task";
@@ -86,6 +88,7 @@ import {
   getTaskTags,
   getStatusesByList,
   listTaskResponsesByProject,
+  removeTagFromTask,
   removeTaskAssignee,
   type BackendStatusGroup,
   type AttachmentResponse,
@@ -116,6 +119,7 @@ import { getProjectById } from "@/lib/project-api";
 import { listWorkspaceMembers } from "@/lib/workspace-api";
 import { useWorkspaceRole } from "@/lib/use-workspace-role";
 import { useWorkspaceEntityGuard } from "@/lib/use-workspace-entity-guard";
+import { TaskRowTagPopover } from "@/components/tasks/TaskRowTagPopover";
 
 type TaskDetailPageProps = {
   taskId: string;
@@ -255,6 +259,10 @@ function toBackendDueDate(value: string) {
   return value ? `${value}T23:59:59` : null;
 }
 
+function toBackendStartDate(value: string) {
+  return value ? `${value}T00:00:00` : null;
+}
+
 function formatDays(value: number | null | undefined) {
   if (value == null) return "None";
   return `${value} ngay`;
@@ -373,6 +381,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     workspaceId: snapshotWorkspaceId,
     canCreateTask,
     canManageTaskAssignments,
+    canManageProjectStructure,
   } = useWorkspaceRole();
 
   const [task, setTask] = useState<TaskResponse | null>(null);
@@ -391,6 +400,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
   const [commentDraft, setCommentDraft] = useState("");
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [startDateDraft, setStartDateDraft] = useState("");
   const [dueDateDraft, setDueDateDraft] = useState("");
   const [titleDraft, setTitleDraft] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -411,9 +421,9 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
   // Theo docs: Member không được tạo/sửa task/subtask; chỉ được cập nhật trạng thái.
   // Các cờ này dùng để khóa UI trước khi gọi API (backend cũng đã chặn).
   const canEditTaskStatus = canEdit;
-  const canEditTaskFields = false;
+  const canEditTaskFields = canEdit && canManageProjectStructure;
   const canCreateSubtask = canEdit && canCreateTask;
-  const canEditAssignees = canEdit && canManageTaskAssignments;
+  const canEditAssignees = canEditTaskStatus;
 
   useWorkspaceEntityGuard({
     entityWorkspaceId: taskWorkspaceId,
@@ -435,6 +445,10 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       ),
     [currentStatus?.statusGroup, currentStatus?.color],
   );
+
+  const startDateInputValue = useMemo(() => {
+    return startDateDraft || (task?.startDate ? toDateInputValue(task.startDate) : "");
+  }, [startDateDraft, task?.startDate]);
 
   const progressValue = useMemo(
     () => (task ? buildProgress(task, currentStatus?.statusGroup) : 0),
@@ -656,6 +670,24 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       const assigneesByTaskId = await getTaskAssigneesBatch(
         directSubtasks.map((t) => t.taskId),
       ).catch(() => ({} as Record<number, TaskAssigneeResponse[]>));
+
+      // Fallback: một số môi trường trả thiếu dữ liệu ở batch endpoint.
+      // Khi thiếu key theo taskId thì gọi lẻ để luôn có dữ liệu assignee hiển thị.
+      const missingAssigneeTaskIds = directSubtasks
+        .map((subtask) => subtask.taskId)
+        .filter((id) => !(id in assigneesByTaskId));
+      if (missingAssigneeTaskIds.length > 0) {
+        const fallbackRows = await Promise.all(
+          missingAssigneeTaskIds.map(async (id) => {
+            const rows = await getTaskAssignees(id).catch(() => []);
+            return [id, rows] as const;
+          }),
+        );
+        fallbackRows.forEach(([id, rows]) => {
+          assigneesByTaskId[id] = rows;
+        });
+      }
+
       const rows = directSubtasks.map((subtask) => ({
         task: subtask,
         assignees: assigneesByTaskId[subtask.taskId] ?? [],
@@ -749,6 +781,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       setStatusOptions(statuses);
       setTitleDraft(loadedTask.title);
       setDescriptionDraft(loadedTask.description ?? "");
+      setStartDateDraft(toDateInputValue(loadedTask.startDate));
       setDueDateDraft(toDateInputValue(loadedTask.dueDate));
 
       try {
@@ -787,6 +820,48 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     void loadTaskDetail();
   }, [loadTaskDetail]);
 
+  const refreshRealtimeData = useCallback(async () => {
+    if (!task) return;
+    const [latestTask] = await Promise.all([
+      getTask(task.taskId).catch(() => null),
+      refreshTaskAssignees(task, viewer),
+      loadSubtasks(task, viewer),
+    ]);
+    if (latestTask) {
+      setTask(latestTask);
+      setTitleDraft(latestTask.title);
+      setDescriptionDraft(latestTask.description ?? "");
+      setStartDateDraft(toDateInputValue(latestTask.startDate));
+      setDueDateDraft(toDateInputValue(latestTask.dueDate));
+    }
+  }, [loadSubtasks, refreshTaskAssignees, task, viewer]);
+
+  useEffect(() => {
+    if (!task) return;
+
+    const refreshIfIdle = () => {
+      if (assigneeBusy || subtaskBusyId != null) return;
+      void refreshRealtimeData();
+    };
+
+    const intervalId = window.setInterval(refreshIfIdle, 8000);
+    const handleWindowFocus = () => refreshIfIdle();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshIfIdle();
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [assigneeBusy, refreshRealtimeData, subtaskBusyId, task]);
+
   useEffect(() => {
     if (!isEditingDescription) return;
     const textarea = descriptionInputRef.current;
@@ -805,7 +880,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
 
   const persistTask = useCallback(
     async (patch: TaskUpdateRequest, successMessage: string) => {
-      if (!canEditTaskStatus) return;
+      if (!canEditTaskStatus && !canEditTaskFields) return;
       if (!task) return;
       setIsSaving(true);
       setError(null);
@@ -816,6 +891,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setTask(updated);
         setTitleDraft(updated.title);
         setDescriptionDraft(updated.description ?? "");
+        setStartDateDraft(toDateInputValue(updated.startDate));
         setDueDateDraft(toDateInputValue(updated.dueDate));
         setSaveMessage(successMessage);
 
@@ -835,7 +911,31 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setIsSaving(false);
       }
     },
-    [canEditTaskStatus, task],
+    [canEditTaskFields, canEditTaskStatus, task],
+  );
+
+  const refreshTaskTags = useCallback(async () => {
+    if (!task) return;
+    const rows = await getTaskTags(task.taskId).catch(() => []);
+    setTaskTags(rows);
+  }, [task]);
+
+  const handleRemoveTag = useCallback(
+    async (tagId: number) => {
+      if (!canEditTaskFields) return;
+      if (!task) return;
+      try {
+        await removeTagFromTask(task.taskId, tagId);
+        await refreshTaskTags();
+      } catch (err) {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : parseErrorMessage(err) || "Could not remove tag.";
+        setError(message);
+      }
+    },
+    [canEditTaskFields, refreshTaskTags, task],
   );
 
   const handleStatusChange = useCallback(
@@ -875,12 +975,29 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     [persistTask],
   );
 
+  const handleStartDateSave = useCallback(async () => {
+    const patch: TaskUpdateRequest = {
+      startDate: toBackendStartDate(startDateDraft),
+    };
+    if (startDateInputValue && dueDateDraft && dueDateDraft < startDateInputValue) {
+      setError("Hạn chót không thể nhỏ hơn ngày bắt đầu.");
+      setDueDateDraft(startDateInputValue);
+      patch.dueDate = toBackendDueDate(startDateInputValue);
+    }
+    await persistTask(patch, "Start date updated.");
+  }, [dueDateDraft, persistTask, startDateDraft, startDateInputValue]);
+
   const handleDueDateSave = useCallback(async () => {
+    if (startDateInputValue && dueDateDraft && dueDateDraft < startDateInputValue) {
+      setError("Hạn chót không thể nhỏ hơn ngày bắt đầu.");
+      setDueDateDraft(startDateInputValue);
+      return;
+    }
     await persistTask(
       { dueDate: toBackendDueDate(dueDateDraft) },
       "Due date updated.",
     );
-  }, [dueDateDraft, persistTask]);
+  }, [dueDateDraft, persistTask, startDateInputValue]);
 
   const handleDescriptionSave = useCallback(async () => {
     await persistTask(
@@ -970,7 +1087,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
 
   const handleSubtaskUpdate = useCallback(
     async (subtaskId: number, patch: TaskUpdateRequest) => {
-      if (!canEditTaskFields) return;
+      if (!canEditTaskStatus) return;
       if (!task) return;
       setSubtaskBusyId(subtaskId);
       setError(null);
@@ -987,12 +1104,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setSubtaskBusyId(null);
       }
     },
-    [canEditTaskFields, loadSubtasks, task, viewer],
+    [canEditTaskStatus, loadSubtasks, task, viewer],
   );
 
   const handleAddSubtaskAssignee = useCallback(
     async (subtaskId: number, userId: number, existingCount: number) => {
-      if (!canEditTaskFields) return;
+      if (!canEditTaskStatus) return;
       if (!task) return;
       setSubtaskBusyId(subtaskId);
       setError(null);
@@ -1012,12 +1129,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setSubtaskBusyId(null);
       }
     },
-    [canEditTaskFields, loadSubtasks, task, viewer],
+    [canEditTaskStatus, loadSubtasks, task, viewer],
   );
 
   const handleRemoveSubtaskAssignee = useCallback(
     async (subtaskId: number, userId: number) => {
-      if (!canEditTaskFields) return;
+      if (!canEditTaskStatus) return;
       if (!task) return;
       setSubtaskBusyId(subtaskId);
       setError(null);
@@ -1034,7 +1151,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setSubtaskBusyId(null);
       }
     },
-    [canEditTaskFields, loadSubtasks, task, viewer],
+    [canEditTaskStatus, loadSubtasks, task, viewer],
   );
 
   const handleAddAssignee = useCallback(
@@ -1267,16 +1384,6 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="rounded-lg border-slate-200"
-                  onClick={handleToggleArchive}
-                  disabled={!canEdit || isSaving}
-                >
-                  <MoreHorizontal className="mr-2 h-4 w-4" />
-                  {task.archived ? "Unarchive" : "Archive"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
                   className="rounded-lg border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
                   onClick={handleDeleteTask}
                   disabled={!canEdit || isDeleting}
@@ -1423,20 +1530,47 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                         <span>Dates</span>
                       </div>
                       <div className="flex min-h-10 min-w-0 flex-wrap items-center gap-2 rounded-xl px-1 py-1 text-sm text-slate-500">
-                        <span className="font-medium text-slate-600">
-                          {formatDateCompact(task.createdAt)}
-                        </span>
-                        <span className="text-slate-300">-&gt;</span>
+                        <Input
+                          type="date"
+                          value={startDateDraft}
+                          onChange={(event) => {
+                            const next = event.target.value;
+                            if (dueDateDraft && next && dueDateDraft < next) {
+                              setError("Hạn chót không thể nhỏ hơn ngày bắt đầu.");
+                              setStartDateDraft(next);
+                              setDueDateDraft(next);
+                              return;
+                            }
+                            setStartDateDraft(next);
+                          }}
+                          onBlur={() => {
+                            if (startDateDraft !== toDateInputValue(task.startDate)) {
+                              void handleStartDateSave();
+                            }
+                          }}
+                          disabled={!canEditTaskFields}
+                          className="h-9 w-[140px] rounded-xl border-slate-200 bg-white px-3 text-slate-700"
+                        />
                         <Input
                           type="date"
                           value={dueDateDraft}
-                          onChange={(event) =>
-                            setDueDateDraft(event.target.value)
-                          }
+                          min={startDateInputValue || undefined}
+                          onChange={(event) => {
+                            const next = event.target.value;
+                            if (startDateInputValue && next && next < startDateInputValue) {
+                              setError("Hạn chót không thể nhỏ hơn ngày bắt đầu.");
+                              setDueDateDraft(startDateInputValue);
+                              return;
+                            }
+                            setDueDateDraft(next);
+                          }}
                           onBlur={() => {
-                            if (
-                              dueDateDraft !== toDateInputValue(task.dueDate)
-                            ) {
+                            if (startDateInputValue && dueDateDraft && dueDateDraft < startDateInputValue) {
+                              setError("Hạn chót không thể nhỏ hơn ngày bắt đầu.");
+                              setDueDateDraft(startDateInputValue);
+                              return;
+                            }
+                            if (dueDateDraft !== toDateInputValue(task.dueDate)) {
                               void handleDueDateSave();
                             }
                           }}
@@ -1468,7 +1602,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                       </div>
                       <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-2">
                         {detailTask ? (
-                          canEdit ? (
+                          canEditAssignees ? (
                             <TaskAssigneeCell
                               task={detailTask}
                               members={workspaceMembers}
@@ -1518,13 +1652,13 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                         <Tag className="h-4 w-4 text-slate-400" />
                         <span>Tags</span>
                       </div>
-                      <div className="flex min-h-10 min-w-0 flex-wrap gap-2 rounded-xl px-1 py-2 text-sm text-slate-500">
+                      <div className="flex min-h-10 min-w-0 flex-wrap items-center gap-2 rounded-xl px-1 py-2 text-sm text-slate-500">
                         {taskTags.length > 0 ? (
                           taskTags.map((tag) => (
                             <Badge
                               key={tag.tagId}
                               variant="outline"
-                              className="rounded-md text-xs font-medium"
+                              className="group inline-flex items-center gap-1 rounded-md pr-1 text-xs font-medium"
                               style={{
                                 color: tag.tagColor || undefined,
                                 borderColor:
@@ -1536,11 +1670,35 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                               }}
                             >
                               {tag.tagName}
+                              {canEditTaskFields ? (
+                                <button
+                                  type="button"
+                                  className="ml-0.5 inline-flex size-5 items-center justify-center rounded-sm text-slate-500 opacity-0 transition group-hover:opacity-100 hover:bg-slate-200/70"
+                                  aria-label={`Remove tag ${tag.tagName}`}
+                                  title="Remove tag"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    void handleRemoveTag(tag.tagId);
+                                  }}
+                                >
+                                  <X className="size-3" strokeWidth={2.5} aria-hidden />
+                                </button>
+                              ) : null}
                             </Badge>
                           ))
                         ) : (
                           <span>Empty</span>
                         )}
+                        {canEditTaskFields && task && taskWorkspaceId != null && taskWorkspaceId > 0 ? (
+                          <TaskRowTagPopover
+                            taskId={task.taskId}
+                            workspaceId={taskWorkspaceId}
+                            currentTagNames={taskTags.map((t) => t.tagName)}
+                            onTagsUpdated={(rows) => setTaskTags(rows)}
+                            className="ml-1"
+                          />
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -1701,180 +1859,45 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                                   : "border-slate-300 bg-white",
                               )}
                             />
-                            <Input
-                              defaultValue={subtaskRow.task.title}
-                              disabled={!canEdit || subtaskBusyId === subtaskRow.task.taskId}
-                              onBlur={(event) => {
-                                const nextTitle = event.target.value.trim();
-                                const currentTitle = subtaskRow.task.title.trim();
-                                if (!nextTitle) {
-                                  void loadSubtasks(task, viewer);
-                                  return;
-                                }
-                                if (nextTitle === currentTitle) return;
-                                void handleSubtaskUpdate(subtaskRow.task.taskId, {
-                                  title: nextTitle,
-                                });
-                              }}
-                              className="h-9 border-none bg-transparent px-0 text-sm font-medium text-slate-900 shadow-none focus-visible:ring-0"
-                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                router.push(`/app/tasks/${subtaskRow.task.taskId}`)
+                              }
+                              className="h-9 truncate border-none bg-transparent px-0 text-left text-sm font-medium text-slate-900 transition hover:text-[#0057B8]"
+                              title={subtaskRow.task.title}
+                            >
+                              {subtaskRow.task.title}
+                            </button>
                           </div>
-                          <div className="flex min-w-0 items-center">
-                            <TaskAssigneeCell
-                              task={subtaskDashboardTask}
-                              members={workspaceMembers}
-                              busy={!canEdit || subtaskBusyId === subtaskRow.task.taskId}
-                              onAdd={(userId) =>
-                                handleAddSubtaskAssignee(
-                                  subtaskRow.task.taskId,
-                                  userId,
-                                  subtaskRow.assignees.length,
-                                )
-                              }
-                              onRemove={(userId) =>
-                                handleRemoveSubtaskAssignee(
-                                  subtaskRow.task.taskId,
-                                  userId,
-                                )
-                              }
+                          <div className="min-w-0 py-1">
+                            <AssigneeAvatarStack
+                              assignees={subtaskAssigneesDisplay}
+                              maxVisible={3}
                             />
                           </div>
                           <div className="flex items-center">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button
-                                  type="button"
-                                  disabled={
-                                    !canEdit ||
-                                    subtaskBusyId === subtaskRow.task.taskId ||
-                                    statusOptions.length === 0
-                                  }
-                                  className={cn(
-                                    "inline-flex h-8 max-w-full min-w-0 items-center gap-1 rounded-full border px-3 text-left text-[11px] font-semibold shadow-none outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60",
-                                    subtaskStatusBadge.className,
-                                  )}
-                                  style={subtaskStatusBadge.style}
-                                >
-                                  <span className="min-w-0 max-w-[9rem] truncate">
-                                    {subtaskStatus
-                                      ? formatStatusLabel(subtaskStatus)
-                                      : "—"}
-                                  </span>
-                                  <ChevronDown
-                                    className="size-3 shrink-0 opacity-70"
-                                    aria-hidden
-                                  />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent
-                                align="start"
-                                className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[min(100vw-2rem,14rem)] max-w-[16rem] p-1"
-                                onCloseAutoFocus={(event) =>
-                                  event.preventDefault()
-                                }
-                              >
-                                {statusOptions.map((status) => {
-                                  const menu = statusMenuItemPresentation(
-                                    status.statusGroup,
-                                    status.color,
-                                  );
-                                  const selected =
-                                    status.statusId === subtaskRow.task.statusId;
-                                  return (
-                                    <DropdownMenuItem
-                                      key={status.statusId}
-                                      className="cursor-pointer gap-2 rounded-md px-2 py-1.5 focus:bg-slate-50"
-                                      onSelect={() =>
-                                        void handleSubtaskUpdate(
-                                          subtaskRow.task.taskId,
-                                          {
-                                            statusId: status.statusId,
-                                            completedAt:
-                                              normalizeBackendStatusGroupKey(
-                                                status.statusGroup ?? "",
-                                              ) === "completed"
-                                                ? subtaskRow.task.completedAt ??
-                                                  new Date().toISOString()
-                                                : null,
-                                          },
-                                        )
-                                      }
-                                    >
-                                      <span className="flex min-w-0 flex-1 items-center gap-2">
-                                        <span
-                                          className={menu.dotClassName}
-                                          style={menu.dotStyle}
-                                          aria-hidden
-                                        />
-                                        <span
-                                          className={cn(
-                                            "truncate text-sm font-medium",
-                                            menu.labelClassName,
-                                          )}
-                                        >
-                                          {formatStatusLabel(status)}
-                                        </span>
-                                      </span>
-                                      {selected ? (
-                                        <Check
-                                          className="size-4 shrink-0 text-slate-400"
-                                          strokeWidth={2.5}
-                                        />
-                                      ) : (
-                                        <span
-                                          className="size-4 shrink-0"
-                                          aria-hidden
-                                        />
-                                      )}
-                                    </DropdownMenuItem>
-                                  );
-                                })}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                          <div className="text-sm text-slate-600">
-                            <Select
-                              value={mapBackendPriority(subtaskRow.task.priority)}
-                              onValueChange={(value) =>
-                                void handleSubtaskUpdate(subtaskRow.task.taskId, {
-                                  priority: mapFrontendPriorityToBackend(
-                                    value as DashboardTask["priority"],
-                                  ),
-                                })
-                              }
-                              disabled={!canEditTaskStatus}
+                            <span
+                              className={cn(
+                                "inline-flex h-8 max-w-full min-w-0 items-center rounded-full border px-3 text-[11px] font-semibold",
+                                subtaskStatusBadge.className,
+                              )}
+                              style={subtaskStatusBadge.style}
                             >
-                              <SelectTrigger
-                                className="h-8 border-none bg-transparent px-0 text-sm font-medium shadow-none focus:ring-0"
-                                disabled={!canEdit || subtaskBusyId === subtaskRow.task.taskId}
-                              >
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="low">Low</SelectItem>
-                                <SelectItem value="medium">Medium</SelectItem>
-                                <SelectItem value="high">High</SelectItem>
-                                <SelectItem value="urgent">Urgent</SelectItem>
-                              </SelectContent>
-                            </Select>
+                              <span className="min-w-0 max-w-[9rem] truncate">
+                                {subtaskStatus
+                                  ? formatStatusLabel(subtaskStatus)
+                                  : "—"}
+                              </span>
+                            </span>
                           </div>
-                          <div className="text-sm text-slate-600">
-                            <Input
-                              type="date"
-                              defaultValue={toDateInputValue(subtaskRow.task.dueDate)}
-                              disabled={!canEdit || subtaskBusyId === subtaskRow.task.taskId}
-                              onBlur={(event) => {
-                                const nextDueDate = toBackendDueDate(
-                                  event.target.value,
-                                );
-                                const currentDueDate = subtaskRow.task.dueDate ?? null;
-                                if (nextDueDate === currentDueDate) return;
-                                void handleSubtaskUpdate(subtaskRow.task.taskId, {
-                                  dueDate: nextDueDate,
-                                });
-                              }}
-                              className="h-8 border-slate-200 bg-slate-50/80 px-2 text-[12px]"
-                            />
+                          <div className="py-1 text-sm font-medium text-slate-700">
+                            {formatTaskPriorityLabel(
+                              mapBackendPriority(subtaskRow.task.priority),
+                            )}
+                          </div>
+                          <div className="py-1 text-sm text-slate-600">
+                            {formatDateCompact(subtaskRow.task.dueDate)}
                           </div>
                         </div>
                       );

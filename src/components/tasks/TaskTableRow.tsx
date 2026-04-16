@@ -62,6 +62,16 @@ const formatDateShort = (dateValue: string) => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
+const toDateInputValue = (value: string | null | undefined) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const isOverdue = (task: DashboardTask) => isTaskDueOverdue(task);
 
 export type TaskTableRowSelection = {
@@ -453,12 +463,15 @@ export function TaskTableRow({
             <Input
               type="date"
               value={dueDateDraft}
+              min={task.startDate ? toDateInputValue(task.startDate) : undefined}
               disabled={readOnly || !dueDateEditable || Boolean(dueDateSaving)}
               onChange={(event) => {
                 if (readOnly || !dueDateEditable) return;
                 const v = event.target.value;
-                onDueDateDraftChange(v);
-                onDueDateSave(v);
+                const startMin = task.startDate ? toDateInputValue(task.startDate) : '';
+                const next = startMin && v && v < startMin ? startMin : v;
+                onDueDateDraftChange(next);
+                onDueDateSave(next);
               }}
               className="h-8 w-[9.75rem] max-w-full shrink-0 border-slate-200 bg-slate-50/90 px-2 text-[11px] leading-none shadow-sm"
             />
