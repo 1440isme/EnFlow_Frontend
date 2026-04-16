@@ -12,9 +12,11 @@ export async function hydrateWorkspaceRoleInSnapshot(workspaceId: number): Promi
       getCurrentUser(),
       listWorkspaceMembers(workspaceId),
     ]);
-    const role = members.find((m) => m.userId === me.userId)?.roleInWorkspace ?? '';
     const cur = getWorkspaceSnapshot();
     if (cur.workspaceId !== workspaceId) return;
+    const memberRole = members.find((m) => m.userId === me.userId)?.roleInWorkspace ?? '';
+    const role =
+      cur.ownerUserId != null && cur.ownerUserId === me.userId ? 'owner' : memberRole ?? '';
     if ((cur.roleInWorkspace ?? '') === role) return;
     saveWorkspaceSnapshot({ ...cur, roleInWorkspace: role });
   } catch {

@@ -6,7 +6,7 @@ describe('Task detail: comment + attachment + subtask', () => {
     cy.visit('/login');
 
     cy.loginByApi().then((token) => {
-      cy.ensurePersonalWorkspaceSnapshot(token, 'member');
+      cy.ensurePersonalWorkspaceSnapshot(token, 'owner');
 
       cy.seedAssignedTask(token, title).then(({ taskId }) => {
         cy.visit(`/app/tasks/${taskId}`);

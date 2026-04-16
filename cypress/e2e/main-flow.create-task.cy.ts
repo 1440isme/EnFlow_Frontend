@@ -19,101 +19,127 @@ describe('Nghiệp vụ chính: tạo task và thấy trong My Tasks', () => {
     cy.visit('/login');
 
     cy.loginByApi().then((token) => {
-      // 1) Lấy user + workspace personal để tạo data đúng context My Tasks
-      cy.request<UserResponse>({
-        method: 'GET',
-        url: '/enflow/users/me',
-        headers: authHeader(token),
-      }).then((meRes) => {
+      return cy.ensurePersonalWorkspaceSnapshot(token, 'owner').then(() => {
+        // 1) Lấy user + workspace personal để tạo data đúng context My Tasks
+        return cy
+          .request<UserResponse>({
+            method: 'GET',
+            url: '/enflow/users/me',
+            headers: authHeader(token),
+          })
+          .then((meRes) => {
         const personalKey = `personal-${meRes.body.userId}`;
 
-        cy.request<WorkspaceResponse[]>({
-          method: 'GET',
-          url: '/enflow/workspaces',
-          headers: authHeader(token),
-        }).then((wsRes) => {
+          return cy
+            .request<WorkspaceResponse[]>({
+              method: 'GET',
+              url: '/enflow/workspaces',
+              headers: authHeader(token),
+            })
+            .then((wsRes) => {
           expect(wsRes.body).to.have.length.greaterThan(0);
           const personal = wsRes.body.find((w) => w.workspaceKey === personalKey) ?? wsRes.body[0];
           const workspaceId = personal.workspaceId;
 
           // 2) Tạo project
-          cy.request<ProjectResponse>({
-            method: 'POST',
-            url: `/enflow/projects/workspaces/${workspaceId}`,
-            headers: authHeader(token),
-            body: {
-              name: projectName,
-              projectKey,
-              description: 'created by cypress',
-              isPrivate: false,
-              archive: false,
-            },
-          }).then((pRes) => {
+          return cy
+            .request<ProjectResponse>({
+              method: 'POST',
+              url: `/enflow/projects/workspaces/${workspaceId}`,
+              headers: authHeader(token),
+              body: {
+                name: projectName,
+                projectKey,
+                description: 'created by cypress',
+                isPrivate: false,
+                archive: false,
+              },
+            })
+            .then((pRes) => {
             const projectId = pRes.body.idProject;
 
             // 3) Tạo list
-            cy.request<ProjectListResponse>({
-              method: 'POST',
-              url: `/enflow/lists/projects/${projectId}`,
-              headers: authHeader(token),
-              body: {
-                name: listName,
-                description: 'created by cypress',
-                position: 1,
-                isPrivate: false,
-                archived: false,
-              },
-            }).then((lRes) => {
+            return cy
+              .request<ProjectListResponse>({
+                method: 'POST',
+                url: `/enflow/lists/projects/${projectId}`,
+                headers: authHeader(token),
+                body: {
+                  name: listName,
+                  description: 'created by cypress',
+                  position: 1,
+                  isPrivate: false,
+                  archived: false,
+                },
+              })
+              .then((lRes) => {
               const listId = lRes.body.listProjectId;
 
               // 4) Tạo status tối thiểu để dialog chọn được
-              cy.request<StatusesResponse>({
-                method: 'POST',
-                url: `/enflow/statuses/projects/${projectId}/lists/${listId}`,
-                headers: authHeader(token),
-                body: {
-                  color: '#94a3b8',
-                  statusGroup: 'to_do',
-                  position: 1,
-                  isDefault: true,
-                },
-              }).then(() => {
-                // 5) Tạo task bằng UI trên My Tasks
-                cy.visit('/app/my-tasks');
-                cy.contains('h1', 'My Tasks').should('be.visible');
+              return cy
+                .request<StatusesResponse>({
+                  method: 'POST',
+                  url: `/enflow/statuses/projects/${projectId}/lists/${listId}`,
+                  headers: authHeader(token),
+                  body: {
+                    color: '#94a3b8',
+                    statusGroup: 'to_do',
+                    position: 1,
+                    isDefault: true,
+                  },
+                })
+                .then(() => {
+                  // 5) Tạo task bằng UI trên My Tasks
+                  return cy.ensurePersonalWorkspaceSnapshot(token, 'owner').then(() => {
+                    cy.visit('/app/my-tasks');
+                    cy.contains('h1', 'My Tasks').should('be.visible');
+                    // Re-apply snapshot in the current app window to ensure hooks receive the event.
+                    return cy.ensurePersonalWorkspaceSnapshot(token, 'owner').then(() => {
+                      cy.reload();
+                      cy.contains('h1', 'My Tasks').should('be.visible');
+                      cy.window().then((win) => {
+                        const raw = win.localStorage.getItem('enflow_workspace_snapshot') || '{}';
+                        const snap = JSON.parse(raw) as { roleInWorkspace?: string; workspaceId?: number | null };
+                        expect(String(snap.roleInWorkspace || '')).to.eq('owner');
+                        expect(snap.workspaceId).to.not.equal(null);
+                      });
 
-                cy.contains('button', 'Create Task').click();
-                cy.contains('Create task').should('be.visible');
+                      cy.contains('button', 'Create Task').click({ force: true });
+                      cy.contains('Create task').should('be.visible');
+                    });
 
-                cy.get('#shared-create-title').clear().type(title);
+                    cy.get('#shared-create-title').clear().type(title);
 
-                cy.get('#shared-create-project').click();
-                cy.contains('[role="option"]', projectName).click();
+                    cy.get('#shared-create-project').click();
+                    cy.contains('[role="option"]', projectName).click();
 
-                cy.get('#shared-create-list').click();
-                cy.contains('[role="option"]', listName).click();
+                    cy.get('#shared-create-list').click();
+                    cy.contains('[role="option"]', listName).click();
 
-                cy.get('#shared-create-status').click();
-                cy.contains('[role="option"]', /to do/i).click();
+                    cy.get('#shared-create-status').click();
+                    cy.contains('[role="option"]', /to do/i).click();
 
-                cy.intercept('POST', '/enflow/tasks/projects/**/lists/**/statuses/**').as('createTask');
-                cy.intercept('POST', '/enflow/task-assignees/tasks/**').as('assignTask');
+                    cy.intercept('POST', '/enflow/tasks/projects/**/lists/**/statuses/**').as('createTask');
+                    cy.intercept('POST', '/enflow/task-assignees/tasks/**').as('assignTask');
 
-                cy.contains('button', /^Create$/).click();
+                    cy.contains('button', /^Create$/).click();
 
-                cy.wait('@createTask')
-                  .its('response.body.taskId')
-                  .then((taskId) => {
-                    expect(taskId).to.be.a('number');
-                    cy.wait('@assignTask');
-                    // Đi thẳng trang chi tiết để assert UI chắc chắn theo taskId
-                    cy.visit(`/app/tasks/${taskId}`);
-                    cy.get('input[class*="text-3xl"]', { timeout: 20000 }).should('have.value', title);
+                    return cy
+                      .wait('@createTask')
+                      .its('response.body.taskId')
+                      .then((taskId) => {
+                        expect(taskId).to.be.a('number');
+                        cy.wait('@assignTask');
+                        // Đi thẳng trang chi tiết để assert UI chắc chắn theo taskId
+                        cy.visit(`/app/tasks/${taskId}`);
+                        cy.get('input[class*="text-3xl"]', { timeout: 20000 }).should('have.value', title);
+                      });
                   });
-              });
+                });
             });
           });
         });
+          });
       });
     });
   });

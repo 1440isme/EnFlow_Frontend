@@ -38,6 +38,7 @@ import {
   ChevronDown,
   UserRound,
   Video,
+  X,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -87,6 +88,7 @@ import {
   getTaskTags,
   getStatusesByList,
   listTaskResponsesByProject,
+  removeTagFromTask,
   removeTaskAssignee,
   type BackendStatusGroup,
   type AttachmentResponse,
@@ -117,6 +119,7 @@ import { getProjectById } from "@/lib/project-api";
 import { listWorkspaceMembers } from "@/lib/workspace-api";
 import { useWorkspaceRole } from "@/lib/use-workspace-role";
 import { useWorkspaceEntityGuard } from "@/lib/use-workspace-entity-guard";
+import { TaskRowTagPopover } from "@/components/tasks/TaskRowTagPopover";
 
 type TaskDetailPageProps = {
   taskId: string;
@@ -256,6 +259,10 @@ function toBackendDueDate(value: string) {
   return value ? `${value}T23:59:59` : null;
 }
 
+function toBackendStartDate(value: string) {
+  return value ? `${value}T00:00:00` : null;
+}
+
 function formatDays(value: number | null | undefined) {
   if (value == null) return "None";
   return `${value} ngay`;
@@ -393,6 +400,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
   const [commentDraft, setCommentDraft] = useState("");
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [startDateDraft, setStartDateDraft] = useState("");
   const [dueDateDraft, setDueDateDraft] = useState("");
   const [titleDraft, setTitleDraft] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -437,6 +445,10 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       ),
     [currentStatus?.statusGroup, currentStatus?.color],
   );
+
+  const startDateInputValue = useMemo(() => {
+    return startDateDraft || (task?.startDate ? toDateInputValue(task.startDate) : "");
+  }, [startDateDraft, task?.startDate]);
 
   const progressValue = useMemo(
     () => (task ? buildProgress(task, currentStatus?.statusGroup) : 0),
@@ -769,6 +781,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       setStatusOptions(statuses);
       setTitleDraft(loadedTask.title);
       setDescriptionDraft(loadedTask.description ?? "");
+      setStartDateDraft(toDateInputValue(loadedTask.startDate));
       setDueDateDraft(toDateInputValue(loadedTask.dueDate));
 
       try {
@@ -818,6 +831,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       setTask(latestTask);
       setTitleDraft(latestTask.title);
       setDescriptionDraft(latestTask.description ?? "");
+      setStartDateDraft(toDateInputValue(latestTask.startDate));
       setDueDateDraft(toDateInputValue(latestTask.dueDate));
     }
   }, [loadSubtasks, refreshTaskAssignees, task, viewer]);
@@ -877,6 +891,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setTask(updated);
         setTitleDraft(updated.title);
         setDescriptionDraft(updated.description ?? "");
+        setStartDateDraft(toDateInputValue(updated.startDate));
         setDueDateDraft(toDateInputValue(updated.dueDate));
         setSaveMessage(successMessage);
 
@@ -897,6 +912,30 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       }
     },
     [canEditTaskFields, canEditTaskStatus, task],
+  );
+
+  const refreshTaskTags = useCallback(async () => {
+    if (!task) return;
+    const rows = await getTaskTags(task.taskId).catch(() => []);
+    setTaskTags(rows);
+  }, [task]);
+
+  const handleRemoveTag = useCallback(
+    async (tagId: number) => {
+      if (!canEditTaskFields) return;
+      if (!task) return;
+      try {
+        await removeTagFromTask(task.taskId, tagId);
+        await refreshTaskTags();
+      } catch (err) {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : parseErrorMessage(err) || "Could not remove tag.";
+        setError(message);
+      }
+    },
+    [canEditTaskFields, refreshTaskTags, task],
   );
 
   const handleStatusChange = useCallback(
@@ -936,12 +975,29 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     [persistTask],
   );
 
+  const handleStartDateSave = useCallback(async () => {
+    const patch: TaskUpdateRequest = {
+      startDate: toBackendStartDate(startDateDraft),
+    };
+    if (startDateInputValue && dueDateDraft && dueDateDraft < startDateInputValue) {
+      setError("Hạn chót không thể nhỏ hơn ngày bắt đầu.");
+      setDueDateDraft(startDateInputValue);
+      patch.dueDate = toBackendDueDate(startDateInputValue);
+    }
+    await persistTask(patch, "Start date updated.");
+  }, [dueDateDraft, persistTask, startDateDraft, startDateInputValue]);
+
   const handleDueDateSave = useCallback(async () => {
+    if (startDateInputValue && dueDateDraft && dueDateDraft < startDateInputValue) {
+      setError("Hạn chót không thể nhỏ hơn ngày bắt đầu.");
+      setDueDateDraft(startDateInputValue);
+      return;
+    }
     await persistTask(
       { dueDate: toBackendDueDate(dueDateDraft) },
       "Due date updated.",
     );
-  }, [dueDateDraft, persistTask]);
+  }, [dueDateDraft, persistTask, startDateInputValue]);
 
   const handleDescriptionSave = useCallback(async () => {
     await persistTask(
@@ -1474,20 +1530,47 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                         <span>Dates</span>
                       </div>
                       <div className="flex min-h-10 min-w-0 flex-wrap items-center gap-2 rounded-xl px-1 py-1 text-sm text-slate-500">
-                        <span className="font-medium text-slate-600">
-                          {formatDateCompact(task.createdAt)}
-                        </span>
-                        <span className="text-slate-300">-&gt;</span>
+                        <Input
+                          type="date"
+                          value={startDateDraft}
+                          onChange={(event) => {
+                            const next = event.target.value;
+                            if (dueDateDraft && next && dueDateDraft < next) {
+                              setError("Hạn chót không thể nhỏ hơn ngày bắt đầu.");
+                              setStartDateDraft(next);
+                              setDueDateDraft(next);
+                              return;
+                            }
+                            setStartDateDraft(next);
+                          }}
+                          onBlur={() => {
+                            if (startDateDraft !== toDateInputValue(task.startDate)) {
+                              void handleStartDateSave();
+                            }
+                          }}
+                          disabled={!canEditTaskFields}
+                          className="h-9 w-[140px] rounded-xl border-slate-200 bg-white px-3 text-slate-700"
+                        />
                         <Input
                           type="date"
                           value={dueDateDraft}
-                          onChange={(event) =>
-                            setDueDateDraft(event.target.value)
-                          }
+                          min={startDateInputValue || undefined}
+                          onChange={(event) => {
+                            const next = event.target.value;
+                            if (startDateInputValue && next && next < startDateInputValue) {
+                              setError("Hạn chót không thể nhỏ hơn ngày bắt đầu.");
+                              setDueDateDraft(startDateInputValue);
+                              return;
+                            }
+                            setDueDateDraft(next);
+                          }}
                           onBlur={() => {
-                            if (
-                              dueDateDraft !== toDateInputValue(task.dueDate)
-                            ) {
+                            if (startDateInputValue && dueDateDraft && dueDateDraft < startDateInputValue) {
+                              setError("Hạn chót không thể nhỏ hơn ngày bắt đầu.");
+                              setDueDateDraft(startDateInputValue);
+                              return;
+                            }
+                            if (dueDateDraft !== toDateInputValue(task.dueDate)) {
                               void handleDueDateSave();
                             }
                           }}
@@ -1569,13 +1652,13 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                         <Tag className="h-4 w-4 text-slate-400" />
                         <span>Tags</span>
                       </div>
-                      <div className="flex min-h-10 min-w-0 flex-wrap gap-2 rounded-xl px-1 py-2 text-sm text-slate-500">
+                      <div className="flex min-h-10 min-w-0 flex-wrap items-center gap-2 rounded-xl px-1 py-2 text-sm text-slate-500">
                         {taskTags.length > 0 ? (
                           taskTags.map((tag) => (
                             <Badge
                               key={tag.tagId}
                               variant="outline"
-                              className="rounded-md text-xs font-medium"
+                              className="group inline-flex items-center gap-1 rounded-md pr-1 text-xs font-medium"
                               style={{
                                 color: tag.tagColor || undefined,
                                 borderColor:
@@ -1587,11 +1670,35 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                               }}
                             >
                               {tag.tagName}
+                              {canEditTaskFields ? (
+                                <button
+                                  type="button"
+                                  className="ml-0.5 inline-flex size-5 items-center justify-center rounded-sm text-slate-500 opacity-0 transition group-hover:opacity-100 hover:bg-slate-200/70"
+                                  aria-label={`Remove tag ${tag.tagName}`}
+                                  title="Remove tag"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    void handleRemoveTag(tag.tagId);
+                                  }}
+                                >
+                                  <X className="size-3" strokeWidth={2.5} aria-hidden />
+                                </button>
+                              ) : null}
                             </Badge>
                           ))
                         ) : (
                           <span>Empty</span>
                         )}
+                        {canEditTaskFields && task && taskWorkspaceId != null && taskWorkspaceId > 0 ? (
+                          <TaskRowTagPopover
+                            taskId={task.taskId}
+                            workspaceId={taskWorkspaceId}
+                            currentTagNames={taskTags.map((t) => t.tagName)}
+                            onTagsUpdated={(rows) => setTaskTags(rows)}
+                            className="ml-1"
+                          />
+                        ) : null}
                       </div>
                     </div>
                   </div>

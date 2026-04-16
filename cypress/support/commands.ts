@@ -8,7 +8,12 @@ type AuthResponse = {
 };
 
 type UserMeResponse = { userId: number; email: string; fullName: string; username: string };
-type WorkspaceResponse = { workspaceId: number; name: string; workspaceKey: string };
+type WorkspaceResponse = {
+  workspaceId: number;
+  name: string;
+  workspaceKey: string;
+  ownerUserId?: number | null;
+};
 
 type ProjectResponse = { idProject: number; name: string };
 type ProjectListResponse = { listProjectId: number; name: string };
@@ -21,7 +26,7 @@ function authHeader(token: string) {
 function setWorkspaceSnapshot(workspace: WorkspaceResponse, roleInWorkspace: string) {
   const snapshot = {
     workspaceId: workspace.workspaceId,
-    ownerUserId: null,
+    ownerUserId: workspace.ownerUserId ?? null,
     name: workspace.name,
     workspaceKey: workspace.workspaceKey,
     description: '',
@@ -114,7 +119,10 @@ Cypress.Commands.add('ensurePersonalWorkspaceSnapshot', (token: string, roleInWo
         })
         .then((wsRes) => {
           const w = wsRes.body.find((x) => x.workspaceKey === personalKey) ?? wsRes.body[0];
-          setWorkspaceSnapshot(w, role);
+          // Role "owner" trong UI cần ownerUserId để hydrate không bị ghi đè.
+          const snapWorkspace =
+            role === 'owner' ? { ...w, ownerUserId: meRes.body.userId } : w;
+          setWorkspaceSnapshot(snapWorkspace, role);
           return cy.wrap(null).then(() => undefined) as unknown as Cypress.Chainable<void>;
         });
     });
