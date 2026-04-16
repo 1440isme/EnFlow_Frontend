@@ -373,6 +373,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
     workspaceId: snapshotWorkspaceId,
     canCreateTask,
     canManageTaskAssignments,
+    canManageProjectStructure,
   } = useWorkspaceRole();
 
   const [task, setTask] = useState<TaskResponse | null>(null);
@@ -411,7 +412,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
   // Theo docs: Member không được tạo/sửa task/subtask; chỉ được cập nhật trạng thái.
   // Các cờ này dùng để khóa UI trước khi gọi API (backend cũng đã chặn).
   const canEditTaskStatus = canEdit;
-  const canEditTaskFields = false;
+  const canEditTaskFields = canEdit && canManageProjectStructure;
   const canCreateSubtask = canEdit && canCreateTask;
   const canEditAssignees = canEdit && canManageTaskAssignments;
 
@@ -805,7 +806,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
 
   const persistTask = useCallback(
     async (patch: TaskUpdateRequest, successMessage: string) => {
-      if (!canEditTaskStatus) return;
+      if (!canEditTaskStatus && !canEditTaskFields) return;
       if (!task) return;
       setIsSaving(true);
       setError(null);
@@ -835,7 +836,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setIsSaving(false);
       }
     },
-    [canEditTaskStatus, task],
+    [canEditTaskFields, canEditTaskStatus, task],
   );
 
   const handleStatusChange = useCallback(

@@ -1412,8 +1412,8 @@ export default function TaskListTab({ listId }: TaskListTabProps) {
                                       dueDateSaving={Boolean(dueDateSavingTaskIds[task.id])}
                                       selectionDisabled={!canManageProjectStructure}
                                       statusEditable={canEdit}
-                                      priorityEditable={false}
-                                      dueDateEditable={false}
+                                      priorityEditable={canManageProjectStructure}
+                                      dueDateEditable={canManageProjectStructure}
                                       assigneeEditable={canManageTaskAssignments}
                                       workspaceMembersForAssignee={workspaceMembersForPicker}
                                       assigneeSaving={Boolean(assigneeSavingByTask[task.id])}

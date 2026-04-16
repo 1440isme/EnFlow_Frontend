@@ -1229,8 +1229,8 @@ export default function MyTasksPage() {
                               dueDateSaving={Boolean(dueDateSavingTaskIds[task.id])}
                               selectionDisabled={!canManageProjectStructure}
                               statusEditable={canEdit}
-                              priorityEditable={false}
-                              dueDateEditable={false}
+                              priorityEditable={canManageProjectStructure}
+                              dueDateEditable={canManageProjectStructure}
                               workspaceId={activeWorkspaceId}
                               onAddSubtask={
                                 canCreateTask
