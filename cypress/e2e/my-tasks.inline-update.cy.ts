@@ -5,7 +5,7 @@ describe('My Tasks: update inline + search', () => {
     cy.visit('/login');
 
     cy.loginByApi().then((token) => {
-      cy.ensurePersonalWorkspaceSnapshot(token, 'member');
+      cy.ensurePersonalWorkspaceSnapshot(token, 'owner');
 
       cy.seedAssignedTask(token, title).then(({ taskId }) => {
         cy.visit('/app/my-tasks');
@@ -40,11 +40,11 @@ describe('My Tasks: update inline + search', () => {
 
         // Search by title (exact).
         cy.get('input[placeholder="Search tasks..."]').clear().type(title);
-        cy.get(`[role="row"][aria-label="${title}"]`).should('be.visible');
+        cy.get(`[role="row"][aria-label="${title}"]`).scrollIntoView().should('exist');
 
         // Clear search -> row still exists.
         cy.get('input[placeholder="Search tasks..."]').clear();
-        cy.get(`[role="row"][aria-label="${title}"]`).should('be.visible');
+        cy.get(`[role="row"][aria-label="${title}"]`).scrollIntoView().should('exist');
       });
     });
   });

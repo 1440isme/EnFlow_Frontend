@@ -122,7 +122,8 @@ const priorityOrder: Record<Task['priority'], number> = {
 };
 
 export default function MyTasksPage() {
-  const { workspaceId: snapshotWorkspaceId, canEdit } = useWorkspaceRole();
+  const { workspaceId: snapshotWorkspaceId, canEdit, canCreateTask, canManageProjectStructure } =
+    useWorkspaceRole();
   const [viewerName, setViewerName] = useState('User');
   const [dashboardTasks, setDashboardTasks] = useState<DashboardTask[]>([]);
   const [taskStatusIds, setTaskStatusIds] = useState<Record<string, number>>({});
@@ -1088,7 +1089,7 @@ export default function MyTasksPage() {
                   setSubtaskParentForDialog(null);
                   setCreateOpen(true);
                 }}
-                disabled={!canEdit}
+                disabled={!canCreateTask}
               >
                 <Plus className="mr-1 size-3.5" />
                 Create Task
@@ -1226,9 +1227,13 @@ export default function MyTasksPage() {
                               statusSaving={Boolean(savingTaskIds[task.id])}
                               prioritySaving={Boolean(prioritySavingTaskIds[task.id])}
                               dueDateSaving={Boolean(dueDateSavingTaskIds[task.id])}
+                              selectionDisabled={!canManageProjectStructure}
+                              statusEditable={canEdit}
+                              priorityEditable={canManageProjectStructure}
+                              dueDateEditable={canManageProjectStructure}
                               workspaceId={activeWorkspaceId}
                               onAddSubtask={
-                                canEdit
+                                canCreateTask
                                   ? (t) => {
                                       setSubtaskParentForDialog(t);
                                       setCreateOpen(true);
@@ -1262,7 +1267,7 @@ export default function MyTasksPage() {
         onCreated={() => void loadTasks()}
       />
 
-      {canEdit ? (
+      {canManageProjectStructure ? (
         <TaskBulkDeleteDialog
           open={deleteDialogOpen}
           onOpenChange={setDeleteDialogOpen}

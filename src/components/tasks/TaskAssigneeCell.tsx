@@ -43,6 +43,7 @@ export function TaskAssigneeCell({ task, members, busy, onAdd, onRemove }: Props
   );
 
   const currentAssignees = task.assigneesDisplay ?? [];
+  const hasAssignees = currentAssignees.length > 0;
 
   const pickableMembers = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -89,7 +90,8 @@ export function TaskAssigneeCell({ task, members, busy, onAdd, onRemove }: Props
           type="button"
           disabled={busy}
           className={cn(
-            'flex min-w-0 max-w-full items-center justify-start rounded-md px-1 py-0.5 outline-none transition-[box-shadow,background-color]',
+            'flex min-h-8 min-w-[2.5rem] max-w-full items-center rounded-md px-1 py-0.5 outline-none transition-[box-shadow,background-color]',
+            hasAssignees ? 'justify-start' : 'justify-center border border-dashed border-slate-300 bg-slate-50',
             'hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-blue-500/35',
             open && 'bg-slate-100 ring-2 ring-blue-200/80',
             busy && 'cursor-wait opacity-70',
@@ -100,7 +102,12 @@ export function TaskAssigneeCell({ task, members, busy, onAdd, onRemove }: Props
           {busy ? (
             <Loader2 className="size-4 shrink-0 animate-spin text-slate-400" aria-hidden />
           ) : (
-            <AssigneeAvatarStack assignees={task.assigneesDisplay} avatarsOnly maxVisible={3} />
+            <AssigneeAvatarStack
+              assignees={task.assigneesDisplay}
+              avatarsOnly
+              maxVisible={3}
+              className={cn(!hasAssignees && 'text-slate-500')}
+            />
           )}
         </button>
       </PopoverTrigger>
