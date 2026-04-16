@@ -302,7 +302,7 @@ export default function KanbanBoardTab({ listId }: Props) {
   const params = useParams();
   const projectId = params?.projectId as string;
   const projectNum = Number(projectId);
-  const { canEdit } = useWorkspaceRole();
+  const { canEdit, canManageProjectStructure, canCreateTask } = useWorkspaceRole();
 
   const [tasks, setTasks] = useState<DashboardTask[]>([]);
   const [statuses, setStatuses] = useState<StatusesResponse[]>([]);
@@ -871,7 +871,7 @@ export default function KanbanBoardTab({ listId }: Props) {
             type="button"
             className="gap-2 bg-[#0057b8] hover:bg-[#00489a]"
             onClick={() => setCreateTaskOpen(true)}
-            disabled={!canEdit}
+            disabled={!canCreateTask}
           >
             <Plus className="w-4 h-4" />
             Add Task
@@ -896,14 +896,21 @@ export default function KanbanBoardTab({ listId }: Props) {
                     title={title}
                     color={dotColor}
                     tasks={columnTasks}
-                    canDelete={canEdit}
-                    onDelete={canEdit ? () => handleDeleteStatusClick(status) : undefined}
+                    canDelete={canManageProjectStructure}
+                    onDelete={
+                      canManageProjectStructure
+                        ? () => handleDeleteStatusClick(status)
+                        : undefined
+                    }
                     onTaskClick={handleTaskClick}
                     onDrop={handleDrop}
                   />
                 );
               })}
-              <AddStatusColumn onClick={() => setCreateStatusOpen(true)} disabled={!isListScope || !canEdit} />
+              <AddStatusColumn
+                onClick={() => setCreateStatusOpen(true)}
+                disabled={!isListScope || !canManageProjectStructure}
+              />
             </>
           ) : (
             <div className="flex-1 min-w-[300px] rounded-lg border border-dashed border-gray-200 bg-white p-6 text-center text-sm text-gray-500">
@@ -913,7 +920,7 @@ export default function KanbanBoardTab({ listId }: Props) {
         </div>
       </DndProvider>
 
-      {canEdit ? (
+      {canManageProjectStructure ? (
         <>
           <CreateStatusDialog
             open={createStatusOpen}

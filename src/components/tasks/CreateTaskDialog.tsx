@@ -34,6 +34,7 @@ import type { StatusesResponse } from '@/types/api';
 import { formatStatusLabel, sortStatuses } from '@/lib/task-status-ui';
 import { mapFrontendPriorityToBackend } from '@/lib/dashboard-task-mapper';
 import { personalWorkspaceKey } from '@/lib/workspace-keys';
+import { useWorkspaceRole } from '@/lib/use-workspace-role';
 
 /** Workspace đang chọn trong sidebar (snapshot); fallback API nếu snapshot chưa có id. */
 async function resolveCurrentWorkspaceId(): Promise<number | null> {
@@ -108,6 +109,7 @@ export function CreateTaskDialog({
   parentTaskId = null,
   onCreated,
 }: CreateTaskDialogProps) {
+  const { canCreateTask } = useWorkspaceRole();
   /** Subtask: project + list bắt buộc khớp task cha; không cho đổi trên UI. */
   const isSubtaskFlow =
     parentTaskId != null &&
@@ -310,6 +312,7 @@ export function CreateTaskDialog({
   }, [open, isSubtaskFlow, lockedProjectId, defaultListId]);
 
   const handleOpenChange = (next: boolean) => {
+    if (next && !canCreateTask) return;
     onOpenChange(next);
     if (!next) {
       setCreateError(null);
@@ -328,6 +331,10 @@ export function CreateTaskDialog({
 
   const handleSubmit = async () => {
     if (createLoading) return;
+    if (!canCreateTask) {
+      setCreateError('Chỉ owner mới được tạo task/subtask.');
+      return;
+    }
     setCreateError(null);
 
     if (parentTaskId != null && !isSubtaskFlow) {
@@ -393,6 +400,7 @@ export function CreateTaskDialog({
 
   const createSubmitDisabled =
     createLoading ||
+    !canCreateTask ||
     createCatalogLoading ||
     createListsLoading ||
     createStatusesLoading ||
