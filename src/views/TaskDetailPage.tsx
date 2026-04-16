@@ -64,6 +64,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/components/ui/utils";
 import type { WorkspaceMemberOption } from "@/components/tasks/TaskAssigneeCell";
 import { TaskAssigneeCell } from "@/components/tasks/TaskAssigneeCell";
+import { AssigneeAvatarStack } from "@/components/tasks/AssigneeAvatarStack";
 import { CreateTaskDialog } from "@/components/tasks/CreateTaskDialog";
 import type { UserResponse } from "@/types/api";
 import type { DashboardTask } from "@/types/dashboard-task";
@@ -413,7 +414,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
   const canEditTaskStatus = canEdit;
   const canEditTaskFields = false;
   const canCreateSubtask = canEdit && canCreateTask;
-  const canEditAssignees = canEdit && canManageTaskAssignments;
+  const canEditAssignees = canEditTaskStatus;
 
   useWorkspaceEntityGuard({
     entityWorkspaceId: taskWorkspaceId,
@@ -656,6 +657,24 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
       const assigneesByTaskId = await getTaskAssigneesBatch(
         directSubtasks.map((t) => t.taskId),
       ).catch(() => ({} as Record<number, TaskAssigneeResponse[]>));
+
+      // Fallback: một số môi trường trả thiếu dữ liệu ở batch endpoint.
+      // Khi thiếu key theo taskId thì gọi lẻ để luôn có dữ liệu assignee hiển thị.
+      const missingAssigneeTaskIds = directSubtasks
+        .map((subtask) => subtask.taskId)
+        .filter((id) => !(id in assigneesByTaskId));
+      if (missingAssigneeTaskIds.length > 0) {
+        const fallbackRows = await Promise.all(
+          missingAssigneeTaskIds.map(async (id) => {
+            const rows = await getTaskAssignees(id).catch(() => []);
+            return [id, rows] as const;
+          }),
+        );
+        fallbackRows.forEach(([id, rows]) => {
+          assigneesByTaskId[id] = rows;
+        });
+      }
+
       const rows = directSubtasks.map((subtask) => ({
         task: subtask,
         assignees: assigneesByTaskId[subtask.taskId] ?? [],
@@ -786,6 +805,47 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
   useEffect(() => {
     void loadTaskDetail();
   }, [loadTaskDetail]);
+
+  const refreshRealtimeData = useCallback(async () => {
+    if (!task) return;
+    const [latestTask] = await Promise.all([
+      getTask(task.taskId).catch(() => null),
+      refreshTaskAssignees(task, viewer),
+      loadSubtasks(task, viewer),
+    ]);
+    if (latestTask) {
+      setTask(latestTask);
+      setTitleDraft(latestTask.title);
+      setDescriptionDraft(latestTask.description ?? "");
+      setDueDateDraft(toDateInputValue(latestTask.dueDate));
+    }
+  }, [loadSubtasks, refreshTaskAssignees, task, viewer]);
+
+  useEffect(() => {
+    if (!task) return;
+
+    const refreshIfIdle = () => {
+      if (assigneeBusy || subtaskBusyId != null) return;
+      void refreshRealtimeData();
+    };
+
+    const intervalId = window.setInterval(refreshIfIdle, 8000);
+    const handleWindowFocus = () => refreshIfIdle();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshIfIdle();
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [assigneeBusy, refreshRealtimeData, subtaskBusyId, task]);
 
   useEffect(() => {
     if (!isEditingDescription) return;
@@ -970,7 +1030,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
 
   const handleSubtaskUpdate = useCallback(
     async (subtaskId: number, patch: TaskUpdateRequest) => {
-      if (!canEditTaskFields) return;
+      if (!canEditTaskStatus) return;
       if (!task) return;
       setSubtaskBusyId(subtaskId);
       setError(null);
@@ -987,12 +1047,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setSubtaskBusyId(null);
       }
     },
-    [canEditTaskFields, loadSubtasks, task, viewer],
+    [canEditTaskStatus, loadSubtasks, task, viewer],
   );
 
   const handleAddSubtaskAssignee = useCallback(
     async (subtaskId: number, userId: number, existingCount: number) => {
-      if (!canEditTaskFields) return;
+      if (!canEditTaskStatus) return;
       if (!task) return;
       setSubtaskBusyId(subtaskId);
       setError(null);
@@ -1012,12 +1072,12 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setSubtaskBusyId(null);
       }
     },
-    [canEditTaskFields, loadSubtasks, task, viewer],
+    [canEditTaskStatus, loadSubtasks, task, viewer],
   );
 
   const handleRemoveSubtaskAssignee = useCallback(
     async (subtaskId: number, userId: number) => {
-      if (!canEditTaskFields) return;
+      if (!canEditTaskStatus) return;
       if (!task) return;
       setSubtaskBusyId(subtaskId);
       setError(null);
@@ -1034,7 +1094,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
         setSubtaskBusyId(null);
       }
     },
-    [canEditTaskFields, loadSubtasks, task, viewer],
+    [canEditTaskStatus, loadSubtasks, task, viewer],
   );
 
   const handleAddAssignee = useCallback(
@@ -1267,16 +1327,6 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="rounded-lg border-slate-200"
-                  onClick={handleToggleArchive}
-                  disabled={!canEdit || isSaving}
-                >
-                  <MoreHorizontal className="mr-2 h-4 w-4" />
-                  {task.archived ? "Unarchive" : "Archive"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
                   className="rounded-lg border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
                   onClick={handleDeleteTask}
                   disabled={!canEdit || isDeleting}
@@ -1468,7 +1518,7 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                       </div>
                       <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-2">
                         {detailTask ? (
-                          canEdit ? (
+                          canEditAssignees ? (
                             <TaskAssigneeCell
                               task={detailTask}
                               members={workspaceMembers}
@@ -1701,180 +1751,45 @@ export default function TaskDetailPage({ taskId }: TaskDetailPageProps) {
                                   : "border-slate-300 bg-white",
                               )}
                             />
-                            <Input
-                              defaultValue={subtaskRow.task.title}
-                              disabled={!canEdit || subtaskBusyId === subtaskRow.task.taskId}
-                              onBlur={(event) => {
-                                const nextTitle = event.target.value.trim();
-                                const currentTitle = subtaskRow.task.title.trim();
-                                if (!nextTitle) {
-                                  void loadSubtasks(task, viewer);
-                                  return;
-                                }
-                                if (nextTitle === currentTitle) return;
-                                void handleSubtaskUpdate(subtaskRow.task.taskId, {
-                                  title: nextTitle,
-                                });
-                              }}
-                              className="h-9 border-none bg-transparent px-0 text-sm font-medium text-slate-900 shadow-none focus-visible:ring-0"
-                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                router.push(`/app/tasks/${subtaskRow.task.taskId}`)
+                              }
+                              className="h-9 truncate border-none bg-transparent px-0 text-left text-sm font-medium text-slate-900 transition hover:text-[#0057B8]"
+                              title={subtaskRow.task.title}
+                            >
+                              {subtaskRow.task.title}
+                            </button>
                           </div>
-                          <div className="flex min-w-0 items-center">
-                            <TaskAssigneeCell
-                              task={subtaskDashboardTask}
-                              members={workspaceMembers}
-                              busy={!canEdit || subtaskBusyId === subtaskRow.task.taskId}
-                              onAdd={(userId) =>
-                                handleAddSubtaskAssignee(
-                                  subtaskRow.task.taskId,
-                                  userId,
-                                  subtaskRow.assignees.length,
-                                )
-                              }
-                              onRemove={(userId) =>
-                                handleRemoveSubtaskAssignee(
-                                  subtaskRow.task.taskId,
-                                  userId,
-                                )
-                              }
+                          <div className="min-w-0 py-1">
+                            <AssigneeAvatarStack
+                              assignees={subtaskAssigneesDisplay}
+                              maxVisible={3}
                             />
                           </div>
                           <div className="flex items-center">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button
-                                  type="button"
-                                  disabled={
-                                    !canEdit ||
-                                    subtaskBusyId === subtaskRow.task.taskId ||
-                                    statusOptions.length === 0
-                                  }
-                                  className={cn(
-                                    "inline-flex h-8 max-w-full min-w-0 items-center gap-1 rounded-full border px-3 text-left text-[11px] font-semibold shadow-none outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:opacity-60",
-                                    subtaskStatusBadge.className,
-                                  )}
-                                  style={subtaskStatusBadge.style}
-                                >
-                                  <span className="min-w-0 max-w-[9rem] truncate">
-                                    {subtaskStatus
-                                      ? formatStatusLabel(subtaskStatus)
-                                      : "—"}
-                                  </span>
-                                  <ChevronDown
-                                    className="size-3 shrink-0 opacity-70"
-                                    aria-hidden
-                                  />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent
-                                align="start"
-                                className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[min(100vw-2rem,14rem)] max-w-[16rem] p-1"
-                                onCloseAutoFocus={(event) =>
-                                  event.preventDefault()
-                                }
-                              >
-                                {statusOptions.map((status) => {
-                                  const menu = statusMenuItemPresentation(
-                                    status.statusGroup,
-                                    status.color,
-                                  );
-                                  const selected =
-                                    status.statusId === subtaskRow.task.statusId;
-                                  return (
-                                    <DropdownMenuItem
-                                      key={status.statusId}
-                                      className="cursor-pointer gap-2 rounded-md px-2 py-1.5 focus:bg-slate-50"
-                                      onSelect={() =>
-                                        void handleSubtaskUpdate(
-                                          subtaskRow.task.taskId,
-                                          {
-                                            statusId: status.statusId,
-                                            completedAt:
-                                              normalizeBackendStatusGroupKey(
-                                                status.statusGroup ?? "",
-                                              ) === "completed"
-                                                ? subtaskRow.task.completedAt ??
-                                                  new Date().toISOString()
-                                                : null,
-                                          },
-                                        )
-                                      }
-                                    >
-                                      <span className="flex min-w-0 flex-1 items-center gap-2">
-                                        <span
-                                          className={menu.dotClassName}
-                                          style={menu.dotStyle}
-                                          aria-hidden
-                                        />
-                                        <span
-                                          className={cn(
-                                            "truncate text-sm font-medium",
-                                            menu.labelClassName,
-                                          )}
-                                        >
-                                          {formatStatusLabel(status)}
-                                        </span>
-                                      </span>
-                                      {selected ? (
-                                        <Check
-                                          className="size-4 shrink-0 text-slate-400"
-                                          strokeWidth={2.5}
-                                        />
-                                      ) : (
-                                        <span
-                                          className="size-4 shrink-0"
-                                          aria-hidden
-                                        />
-                                      )}
-                                    </DropdownMenuItem>
-                                  );
-                                })}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                          <div className="text-sm text-slate-600">
-                            <Select
-                              value={mapBackendPriority(subtaskRow.task.priority)}
-                              onValueChange={(value) =>
-                                void handleSubtaskUpdate(subtaskRow.task.taskId, {
-                                  priority: mapFrontendPriorityToBackend(
-                                    value as DashboardTask["priority"],
-                                  ),
-                                })
-                              }
-                              disabled={!canEditTaskStatus}
+                            <span
+                              className={cn(
+                                "inline-flex h-8 max-w-full min-w-0 items-center rounded-full border px-3 text-[11px] font-semibold",
+                                subtaskStatusBadge.className,
+                              )}
+                              style={subtaskStatusBadge.style}
                             >
-                              <SelectTrigger
-                                className="h-8 border-none bg-transparent px-0 text-sm font-medium shadow-none focus:ring-0"
-                                disabled={!canEdit || subtaskBusyId === subtaskRow.task.taskId}
-                              >
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="low">Low</SelectItem>
-                                <SelectItem value="medium">Medium</SelectItem>
-                                <SelectItem value="high">High</SelectItem>
-                                <SelectItem value="urgent">Urgent</SelectItem>
-                              </SelectContent>
-                            </Select>
+                              <span className="min-w-0 max-w-[9rem] truncate">
+                                {subtaskStatus
+                                  ? formatStatusLabel(subtaskStatus)
+                                  : "—"}
+                              </span>
+                            </span>
                           </div>
-                          <div className="text-sm text-slate-600">
-                            <Input
-                              type="date"
-                              defaultValue={toDateInputValue(subtaskRow.task.dueDate)}
-                              disabled={!canEdit || subtaskBusyId === subtaskRow.task.taskId}
-                              onBlur={(event) => {
-                                const nextDueDate = toBackendDueDate(
-                                  event.target.value,
-                                );
-                                const currentDueDate = subtaskRow.task.dueDate ?? null;
-                                if (nextDueDate === currentDueDate) return;
-                                void handleSubtaskUpdate(subtaskRow.task.taskId, {
-                                  dueDate: nextDueDate,
-                                });
-                              }}
-                              className="h-8 border-slate-200 bg-slate-50/80 px-2 text-[12px]"
-                            />
+                          <div className="py-1 text-sm font-medium text-slate-700">
+                            {formatTaskPriorityLabel(
+                              mapBackendPriority(subtaskRow.task.priority),
+                            )}
+                          </div>
+                          <div className="py-1 text-sm text-slate-600">
+                            {formatDateCompact(subtaskRow.task.dueDate)}
                           </div>
                         </div>
                       );

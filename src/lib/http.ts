@@ -70,6 +70,8 @@ export type RequestJsonOptions = {
   body?: unknown;
   /** Mặc định true: gửi Bearer nếu có token. */
   auth?: boolean;
+  /** Fetch cache mode (vd: "no-store" cho dữ liệu cần realtime). */
+  fetchCache?: RequestCache;
   /**
    * Cache nhẹ cho GET để tránh gọi trùng khi nhiều component/effect chạy cùng lúc
    * (đặc biệt trong React StrictMode dev).
@@ -150,6 +152,7 @@ export async function requestJson<T>(
         method,
         headers,
         body: hasBody ? JSON.stringify(options.body) : undefined,
+        cache: options.fetchCache,
         // Cross-origin + JWT header: không cần cookie → omit tránh CORS bắt Allow-Credentials.
         credentials: crossOrigin ? 'omit' : 'same-origin',
       });

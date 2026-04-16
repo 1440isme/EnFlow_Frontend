@@ -287,6 +287,8 @@ export async function getTaskAssignees(
     `/enflow/task-assignees/tasks/${taskId}`,
     {
       auth: true,
+      cacheTtlMs: 0,
+      fetchCache: "no-store",
     },
   );
 }
@@ -406,7 +408,11 @@ export async function listTaskResponsesByProject(
   return requestJson<TaskResponse[]>(
     "GET",
     `/enflow/tasks/projects/${projectId}`,
-    { auth: true },
+    {
+      auth: true,
+      cacheTtlMs: 0,
+      fetchCache: "no-store",
+    },
   );
 }
 
